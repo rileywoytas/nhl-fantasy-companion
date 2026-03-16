@@ -3,6 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/nhl-fantasy-companion.iml" filepath="$PROJECT_DIR$/.idea/nhl-fantasy-companion.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/modules/nhl-stats-api.main.iml" filepath="$PROJECT_DIR$/.idea/modules/nhl-stats-api.main.iml" />
     </modules>
   </component>
 </project>
