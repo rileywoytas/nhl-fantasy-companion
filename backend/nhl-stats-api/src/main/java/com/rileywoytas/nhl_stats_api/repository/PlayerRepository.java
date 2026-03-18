@@ -1,6 +1,6 @@
 package com.rileywoytas.nhl_stats_api.repository;
 
-import com.rileywoytas.nhl_stats_api.entity.Team;
+import com.rileywoytas.nhl_stats_api.entity.Player;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -8,8 +8,6 @@ import java.util.Optional;
 import java.util.UUID;
 
 @Repository
-public interface TeamRepository extends JpaRepository<Team, UUID> {
-    Optional<Team> findByNhlId(Integer nhlId);
-
-    Optional<Team> findByTriCode(String triCode);
+public interface PlayerRepository extends JpaRepository<Player, UUID> {
+    Optional<Player> findByNhlId(Integer nhlId);
 }

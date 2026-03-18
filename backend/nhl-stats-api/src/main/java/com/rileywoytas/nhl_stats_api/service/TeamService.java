@@ -21,6 +21,6 @@ public class TeamService {
 
     public Team getByNhlId(Integer nhlId) {
         return teamRepository.findByNhlId(nhlId)
-                .orElseThrow(() -> new RuntimeException("Team not found"));
+                .orElseThrow(() -> new RuntimeException("Team with NHL ID " + nhlId + " not found"));
     }
 }
