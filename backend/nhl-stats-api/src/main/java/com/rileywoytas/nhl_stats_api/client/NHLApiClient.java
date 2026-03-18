@@ -12,4 +12,9 @@ public class NHLApiClient {
         String url = "https://api.nhle.com/stats/rest/en/team";
         return restTemplate.getForObject(url, String.class);
     }
+
+    public String getCurrentPlayers() {
+        String url = "https://api-web.nhle.com/v1/skater-stats-leaders/current?categories=toi&limit=-1";
+        return restTemplate.getForObject(url, String.class);
+    }
 }
