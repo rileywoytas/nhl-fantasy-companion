@@ -32,6 +32,7 @@ public class Player {
     @ManyToOne
     @JoinColumn(name = "team_id")
     private Team team;
+
 //    @OneToMany(mappedBy = "player")
 //    private List<PlayerGameStats> gameStats;
 }

@@ -72,12 +72,29 @@ public class NHLImportService {
         return teamList.size();
     }
 
-    public int importPlayers() throws Exception {
-
+    public int importSkaters() throws Exception {
         String response = apiClient.getCurrentPlayers();
 
-        JsonNode root = mapper.readTree(response);
-        JsonNode players = root.get("toi");
+        List<Player> skaterList = parsePlayers(response, "toi");
+
+        playerRepository.saveAll(skaterList);
+
+        return skaterList.size();
+    }
+
+    public int importGoalies() throws Exception {
+        String response = apiClient.getCurrentGoalies();
+
+        List<Player> goalieList = parsePlayers(response, "wins");
+        playerRepository.saveAll(goalieList);
+
+        return goalieList.size();
+
+    }
+
+    private List<Player> parsePlayers(String jsonResponse, String enclosingFieldName){
+        JsonNode root = mapper.readTree(jsonResponse);
+        JsonNode players = root.get(enclosingFieldName);
 
         Map<String, Team> teamMap = teamRepository.findAll()
                 .stream()
@@ -115,9 +132,7 @@ public class NHLImportService {
             playerList.add(player);
         }
 
-        playerRepository.saveAll(playerList);
-
-        return playerList.size();
+        return playerList;
     }
 
     public int importGames(int startingYear) throws Exception {

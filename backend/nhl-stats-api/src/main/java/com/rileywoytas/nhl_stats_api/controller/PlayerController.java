@@ -27,8 +27,13 @@ public class PlayerController {
         return playerService.getAllPlayers();
     }
 
-    @PostMapping("/import")
+    @PostMapping("/import/skaters")
     public int importPlayers() throws Exception {
-        return importService.importPlayers();
+        return importService.importSkaters();
+    }
+
+    @PostMapping("/import/goalies")
+    public int importGoalies() throws Exception {
+        return importService.importGoalies();
     }
 }

@@ -13,8 +13,15 @@ public class NHLApiClient {
         return restTemplate.getForObject(url, String.class);
     }
 
+    //Players with Time-On-Ice > 0
     public String getCurrentPlayers() {
         String url = "https://api-web.nhle.com/v1/skater-stats-leaders/current?categories=toi&limit=-1";
+        return restTemplate.getForObject(url, String.class);
+    }
+
+    //Goalies with
+    public String getCurrentGoalies() {
+        String url = "https://api-web.nhle.com/v1/goalie-stats-leaders/current?categories=wins&limit=-1";
         return restTemplate.getForObject(url, String.class);
     }
 
