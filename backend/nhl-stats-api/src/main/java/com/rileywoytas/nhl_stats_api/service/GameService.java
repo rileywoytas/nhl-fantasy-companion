@@ -18,4 +18,8 @@ public class GameService {
     public List<Game> getAllGames() {
         return gameRepository.findAll();
     }
+
+    public List<Game> getAllGamesBySeason(String season) {
+        return gameRepository.findAllBySeason(season);
+    }
 }

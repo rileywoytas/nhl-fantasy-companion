@@ -35,6 +35,15 @@ public class Game {
     @JoinColumn(name = "away_team_id")
     private Team awayTeam;
 
+    private Integer homeScore;
+    private Integer awayScore;
+
+    private Integer homeShots;
+    private Integer awayShots;
+
+    private String gameState;
+    private String gameEndType;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "game_type", nullable = false)
     private GameType gameType;

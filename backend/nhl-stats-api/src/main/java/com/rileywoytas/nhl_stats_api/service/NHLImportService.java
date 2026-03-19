@@ -1,11 +1,12 @@
 package com.rileywoytas.nhl_stats_api.service;
 
 import com.rileywoytas.nhl_stats_api.client.NHLApiClient;
-import com.rileywoytas.nhl_stats_api.entity.Game;
-import com.rileywoytas.nhl_stats_api.entity.GameType;
-import com.rileywoytas.nhl_stats_api.entity.Player;
-import com.rileywoytas.nhl_stats_api.entity.Team;
+import com.rileywoytas.nhl_stats_api.dto.BoxScoreDTO;
+import com.rileywoytas.nhl_stats_api.dto.GoalieDTO;
+import com.rileywoytas.nhl_stats_api.dto.SkaterDTO;
+import com.rileywoytas.nhl_stats_api.entity.*;
 import com.rileywoytas.nhl_stats_api.repository.GameRepository;
+import com.rileywoytas.nhl_stats_api.repository.PlayerGameStatsRepository;
 import com.rileywoytas.nhl_stats_api.repository.PlayerRepository;
 import com.rileywoytas.nhl_stats_api.repository.TeamRepository;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,7 @@ public class NHLImportService {
     private final TeamRepository teamRepository;
     private final PlayerRepository playerRepository;
     private final GameRepository gameRepository;
+    private final PlayerGameStatsRepository playerGameStatsRepository;
     private final ObjectMapper mapper;
 
     private static final int CURRENT_SEASON_START_YEAR = 2025;
@@ -36,11 +38,13 @@ public class NHLImportService {
                             TeamRepository teamRepository,
                             PlayerRepository playerRepository,
                             GameRepository gameRepository,
+                            PlayerGameStatsRepository playerGameStatsRepository,
                             ObjectMapper mapper) {
         this.apiClient = apiClient;
         this.teamRepository = teamRepository;
         this.playerRepository = playerRepository;
         this.gameRepository = gameRepository;
+        this.playerGameStatsRepository = playerGameStatsRepository;
         this.mapper = mapper;
         this.logger = Logger.getLogger(NHLImportService.class.getName());
     }
@@ -92,6 +96,114 @@ public class NHLImportService {
 
     }
 
+    public int importSeasonBoxScores(String season) throws Exception {
+
+        List<Game> games = gameRepository.findAllBySeason(season);
+
+        for(Game game : games){
+            BoxScoreDTO boxScoreDTO = apiClient.getBoxScore(game.getNhlId().toString());
+        }
+
+        return -1;
+    }
+
+    public int importGameBoxScores(String gameNhlId) throws Exception {
+        BoxScoreDTO boxScoreDTO = apiClient.getBoxScore(gameNhlId);
+
+        Game game = gameRepository.findByNhlId(boxScoreDTO.getId()).orElseGet(Game::new);
+        game.setNhlId(boxScoreDTO.getId());
+        game.setHomeScore(boxScoreDTO.getHomeTeam().getScore());
+        game.setAwayScore(boxScoreDTO.getAwayTeam().getScore());
+        game.setHomeShots(boxScoreDTO.getHomeTeam().getSog());
+        game.setAwayShots(boxScoreDTO.getAwayTeam().getSog());
+        game.setGameState(boxScoreDTO.getGameState());
+        game.setGameEndType(boxScoreDTO.getGameEndType());
+        gameRepository.save(game);
+
+//        Map<Integer, Player> playerMap = playerRepository.findAll()
+//                .stream()
+//                .collect(Collectors.toMap(Player::getNhlId, t -> t));
+
+        List<PlayerGameStats> playerGameStatsList = new ArrayList<>();
+        for(SkaterDTO skater : boxScoreDTO.getSkaters()){
+            PlayerGameStats playerGameStats = playerGameStatsRepository.findByPlayerIdAndGameId(skater.getPlayerId(), game.getNhlId())
+                    .orElseGet(PlayerGameStats::new);
+
+            playerGameStats.setPlayerId(skater.getPlayerId());
+            playerGameStats.setGameId(game.getNhlId());
+            playerGameStats.setPosition(skater.getPosition());
+            playerGameStats.setGoals(skater.getGoals());
+            playerGameStats.setAssists(skater.getAssists());
+            playerGameStats.setPlusMinus(skater.getPlusMinus());
+            playerGameStats.setPim(skater.getPim());
+            playerGameStats.setHits(skater.getHits());
+            playerGameStats.setShots(skater.getShots());
+            playerGameStats.setBlocks(skater.getBlocks());
+            playerGameStats.setTimeOnIceSeconds(parseToSeconds(skater.getTimeOnIce()));
+            playerGameStats.setShifts(skater.getShifts());
+            playerGameStats.setGiveaways(skater.getGiveaways());
+            playerGameStats.setTakeaways(skater.getTakeaways());
+
+            playerGameStatsList.add(playerGameStats);
+        }
+
+        for(GoalieDTO goalieDTO : boxScoreDTO.getGoalies()){
+            PlayerGameStats playerGameStats = playerGameStatsRepository.findByPlayerIdAndGameId(goalieDTO.getPlayerId(), game.getNhlId())
+                    .orElseGet(PlayerGameStats::new);
+
+            playerGameStats.setPlayerId(goalieDTO.getPlayerId());
+            playerGameStats.setGameId(game.getNhlId());
+            playerGameStats.setTimeOnIceSeconds(parseToSeconds(goalieDTO.getTimeOnIce()));
+            playerGameStats.setSaves(goalieDTO.getSaves());
+            playerGameStats.setShotsAgainst(goalieDTO.getShotsAgainst());
+            playerGameStats.setEvenStrengthGoalsAgainst(goalieDTO.getEvenStrengthGoalsAgainst());
+            playerGameStats.setPowerPlayGoalsAgainst(goalieDTO.getPowerPlayGoalsAgainst());
+            playerGameStats.setShorthandedGoalsAgainst(goalieDTO.getShorthandedGoalsAgainst());
+            playerGameStats.setGoalsAgainst(goalieDTO.getGoalsAgainst());
+            playerGameStats.setSavePercentage(goalieDTO.getSavePercentage());
+            playerGameStats.setStarter(goalieDTO.getStarter());
+            playerGameStats.setPosition("G");
+
+            playerGameStatsList.add(playerGameStats);
+        }
+
+        playerGameStatsRepository.saveAll(playerGameStatsList);
+
+        return playerGameStatsList.size();
+    }
+
+
+
+    public int importGames(int startingYear) throws Exception {
+        List<Team> allTeams =  teamRepository.findAll();
+
+        int totalGames = 0;
+        for(int year = startingYear; year <= CURRENT_SEASON_START_YEAR; year++){
+            String season = year + "" + (year + 1);
+            for (Team team : allTeams) {
+                List<Game> seasonHomeGames = parseSeasonHomeGames(apiClient.getTeamsHomeGamesForSeason(team.getTriCode(), season), team.getTriCode());
+                totalGames += seasonHomeGames.size();
+                gameRepository.saveAll(seasonHomeGames);
+                logger.log(Level.INFO, "Imported " + seasonHomeGames.size() + " home games from " + team.getTriCode() + " " + season + " season.");
+            }
+        }
+
+
+        return totalGames;
+    }
+
+    private Game parseGameFromBoxScoreDTO(BoxScoreDTO boxScoreDTO) {
+        Game game = gameRepository.findByNhlId(boxScoreDTO.getId()).orElseGet(Game::new);
+        game.setNhlId(boxScoreDTO.getId());
+        game.setHomeScore(boxScoreDTO.getHomeTeam().getScore());
+        game.setAwayScore(boxScoreDTO.getAwayTeam().getScore());
+        game.setHomeShots(boxScoreDTO.getHomeTeam().getSog());
+        game.setAwayShots(boxScoreDTO.getAwayTeam().getSog());
+        game.setGameState(boxScoreDTO.getGameState());
+        game.setGameEndType(boxScoreDTO.getGameEndType());
+        return game;
+    }
+
     private List<Player> parsePlayers(String jsonResponse, String enclosingFieldName){
         JsonNode root = mapper.readTree(jsonResponse);
         JsonNode players = root.get(enclosingFieldName);
@@ -133,24 +245,6 @@ public class NHLImportService {
         }
 
         return playerList;
-    }
-
-    public int importGames(int startingYear) throws Exception {
-        List<Team> allTeams =  teamRepository.findAll();
-
-        int totalGames = 0;
-        for(int year = startingYear; year <= CURRENT_SEASON_START_YEAR; year++){
-            String season = year + "" + (year + 1);
-            for (Team team : allTeams) {
-                List<Game> seasonHomeGames = parseSeasonHomeGames(apiClient.getTeamsHomeGamesForSeason(team.getTriCode(), season), team.getTriCode());
-                totalGames += seasonHomeGames.size();
-                gameRepository.saveAll(seasonHomeGames);
-                logger.log(Level.INFO, "Imported " + seasonHomeGames.size() + " home games from " + team.getTriCode() + " " + season + " season.");
-            }
-        }
-
-
-        return totalGames;
     }
 
     private List<Game> parseSeasonHomeGames(String jsonResponse, String teamAbbreviation){
@@ -204,6 +298,18 @@ public class NHLImportService {
         }
 
         return gameList;
+    }
+
+    private int parseToSeconds(String time){
+        if (time == null || !time.contains(":")) {
+            return -1;
+        }
+
+        String[] parts = time.split(":");
+        int minutes = Integer.parseInt(parts[0]);
+        int seconds = Integer.parseInt(parts[1]);
+
+        return minutes * 60 + seconds;
     }
 
     private GameType mapGameType(int gameType){

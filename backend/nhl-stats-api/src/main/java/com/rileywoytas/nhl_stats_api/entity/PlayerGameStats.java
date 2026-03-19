@@ -3,6 +3,8 @@ package com.rileywoytas.nhl_stats_api.entity;
 import jakarta.persistence.*;
 import lombok.Data;
 
+import java.util.UUID;
+
 
 @Entity
 @Table(
@@ -14,10 +16,11 @@ public class PlayerGameStats {
 
     @Id
     @GeneratedValue
-    private Long id;
+    private UUID id;
 
     private Long gameId;
-    private Long playerId;
+    private Integer playerId;
+
     private Long teamId;
 
     private String position;
@@ -30,12 +33,19 @@ public class PlayerGameStats {
     private Integer blocks;
     private Integer pim;
     private Integer plusMinus;
+    private Integer shifts;
+    private Integer giveaways;
+    private Integer takeaways;
 
     // Goalie stats
     private Integer saves;
     private Integer shotsAgainst;
+    private Integer evenStrengthGoalsAgainst;
+    private Integer powerPlayGoalsAgainst;
+    private Integer shorthandedGoalsAgainst;
     private Integer goalsAgainst;
     private Double savePercentage;
+    private Boolean starter;
 
     // Shared
     private Integer timeOnIceSeconds;

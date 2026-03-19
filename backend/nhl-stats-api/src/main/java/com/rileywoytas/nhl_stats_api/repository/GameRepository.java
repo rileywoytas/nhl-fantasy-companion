@@ -12,5 +12,5 @@ import java.util.UUID;
 public interface GameRepository extends JpaRepository<Game, UUID> {
     Optional<Game> findByNhlId(Long nhlId);
 
-    Optional<List<Game>> findAllBySeason(String season);
+    List<Game> findAllBySeason(String season);
 }
