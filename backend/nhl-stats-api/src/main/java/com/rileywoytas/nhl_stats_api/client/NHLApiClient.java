@@ -17,4 +17,9 @@ public class NHLApiClient {
         String url = "https://api-web.nhle.com/v1/skater-stats-leaders/current?categories=toi&limit=-1";
         return restTemplate.getForObject(url, String.class);
     }
+
+    public String getTeamsHomeGamesForSeason(String teamAbbrev, String season) {
+        String url = "https://api-web.nhle.com/v1/club-schedule-season/" + teamAbbrev + "/" + season;
+        return restTemplate.getForObject(url, String.class);
+    }
 }
