@@ -2,12 +2,75 @@ package com.rileywoytas.nhl_stats_api.repository;
 
 import com.rileywoytas.nhl_stats_api.entity.PlayerGameStats;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 @Repository
 public interface PlayerGameStatsRepository extends JpaRepository<PlayerGameStats, UUID> {
     Optional<PlayerGameStats> findByPlayerIdAndGameId(Integer playerId, Long teamId);
+
+    @Query(value = """
+            SELECT
+                pgs.player_id AS playerId,
+                g.season AS season,
+                COUNT(*) AS gamesPlayed,
+                SUM(pgs.goals) AS goals,
+                SUM(pgs.assists) AS assists,
+                SUM(pgs.goals + pgs.assists) AS points,
+                SUM(pgs.shots) AS shots,
+                SUM(pgs.hits) AS hits,
+                SUM(pgs.blocks) AS blocks,
+                SUM(pgs.pim) AS pim,
+                SUM(pgs.plus_minus) AS plusMinus,
+                SUM(pgs.giveaways) AS giveaways,
+                SUM(pgs.takeaways) AS takeaways,
+                SUM(pgs.time_on_ice_seconds) AS timeOnIceSeconds,
+                SUM(CASE WHEN pgs.starter = true THEN 1 ELSE 0 END) AS starts,
+                SUM(pgs.saves) AS saves,
+                SUM(pgs.shots_against) AS shotsAgainst,
+                SUM(pgs.goals_against) AS goalsAgainst,
+                CASE WHEN SUM(pgs.shots_against) > 0
+                     THEN ROUND(SUM(pgs.saves)::numeric / SUM(pgs.shots_against), 3)
+                     ELSE NULL END AS savePercentage
+            FROM player_game_stats pgs
+            JOIN games g ON g.nhl_id = pgs.game_id
+            WHERE g.season = :season
+            GROUP BY pgs.player_id, g.season
+            """, nativeQuery = true)
+    List<PlayerSeasonTotalsProjection> findSeasonTotals(@Param("season") String season);
+
+    @Query(value = """
+            SELECT
+                pgs.player_id AS playerId,
+                g.season AS season,
+                COUNT(*) AS gamesPlayed,
+                SUM(pgs.goals) AS goals,
+                SUM(pgs.assists) AS assists,
+                SUM(pgs.goals + pgs.assists) AS points,
+                SUM(pgs.shots) AS shots,
+                SUM(pgs.hits) AS hits,
+                SUM(pgs.blocks) AS blocks,
+                SUM(pgs.pim) AS pim,
+                SUM(pgs.plus_minus) AS plusMinus,
+                SUM(pgs.giveaways) AS giveaways,
+                SUM(pgs.takeaways) AS takeaways,
+                SUM(pgs.time_on_ice_seconds) AS timeOnIceSeconds,
+                SUM(CASE WHEN pgs.starter = true THEN 1 ELSE 0 END) AS starts,
+                SUM(pgs.saves) AS saves,
+                SUM(pgs.shots_against) AS shotsAgainst,
+                SUM(pgs.goals_against) AS goalsAgainst,
+                CASE WHEN SUM(pgs.shots_against) > 0
+                     THEN ROUND(SUM(pgs.saves)::numeric / SUM(pgs.shots_against), 3)
+                     ELSE NULL END AS savePercentage
+            FROM player_game_stats pgs
+            JOIN games g ON g.nhl_id = pgs.game_id
+            WHERE g.season = :season AND pgs.player_id = :playerId
+            GROUP BY pgs.player_id, g.season
+            """, nativeQuery = true)
+    Optional<PlayerSeasonTotalsProjection> findSeasonTotalsForPlayer(@Param("season") String season, @Param("playerId") Integer playerId);
 }

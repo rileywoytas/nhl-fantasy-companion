@@ -10,6 +10,9 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
+import java.util.Optional;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 @Component
 public class NHLApiClient {
@@ -55,6 +58,9 @@ public class NHLApiClient {
         boxScoreDTO.setGameType(root.get("gameType").asInt());
         boxScoreDTO.setGameDate(root.get("gameDate").asString());
         boxScoreDTO.setGameState(root.get("gameState").asString());
+        if("FUT".equals(root.get("gameState").asString())) {
+            return null;
+        }
         if("OFF".equals(boxScoreDTO.getGameState())){
             boxScoreDTO.setGameEndType(root.get("gameOutcome").get("lastPeriodType").asString());
         }
@@ -64,29 +70,38 @@ public class NHLApiClient {
         boxScoreDTO.setSkaters(new ArrayList<>());
         boxScoreDTO.setGoalies(new ArrayList<>());
 
-        JsonNode homePlayers = root.get("playerByGameStats").get("homeTeam");
+        if(root.get("playerByGameStats") != null) {
 
-        homePlayers.get("forwards").forEach(forward -> {
-            boxScoreDTO.getSkaters().add(parseSkater(forward));
-        });
-        homePlayers.get("defense").forEach(defense -> {
-            boxScoreDTO.getSkaters().add(parseSkater(defense));
-        });
-        homePlayers.get("goalies").forEach(goalie -> {
-            boxScoreDTO.getGoalies().add(parseGoalie(goalie));
-        });
+            if (root.get("playerByGameStats").get("homeTeam") != null){
+                JsonNode homePlayers = root.get("playerByGameStats").get("homeTeam");
 
-        JsonNode awayPlayers = root.get("playerByGameStats").get("awayTeam");
+                homePlayers.get("forwards").forEach(forward -> {
+                    boxScoreDTO.getSkaters().add(parseSkater(forward));
+                });
+                homePlayers.get("defense").forEach(defense -> {
+                    boxScoreDTO.getSkaters().add(parseSkater(defense));
+                });
+                homePlayers.get("goalies").forEach(goalie -> {
+                    boxScoreDTO.getGoalies().add(parseGoalie(goalie));
+                });
 
-        awayPlayers.get("forwards").forEach(forward -> {
-            boxScoreDTO.getSkaters().add(parseSkater(forward));
-        });
-        awayPlayers.get("defense").forEach(defense -> {
-            boxScoreDTO.getSkaters().add(parseSkater(defense));
-        });
-        awayPlayers.get("goalies").forEach(goalie -> {
-            boxScoreDTO.getGoalies().add(parseGoalie(goalie));
-        });
+            }
+            if(root.get("playerByGameStats").get("awayTeam") != null) {
+                JsonNode awayPlayers = root.get("playerByGameStats").get("awayTeam");
+
+                awayPlayers.get("forwards").forEach(forward -> {
+                    boxScoreDTO.getSkaters().add(parseSkater(forward));
+                });
+                awayPlayers.get("defense").forEach(defense -> {
+                    boxScoreDTO.getSkaters().add(parseSkater(defense));
+                });
+                awayPlayers.get("goalies").forEach(goalie -> {
+                    boxScoreDTO.getGoalies().add(parseGoalie(goalie));
+                });
+            }
+        } else {
+            Logger.getLogger(NHLApiClient.class.getName()).log(Level.WARNING, "Player By Game Stats not found");
+        }
         return boxScoreDTO;
 
 
@@ -96,8 +111,12 @@ public class NHLApiClient {
         TeamDTO teamDTO = new TeamDTO();
 
         teamDTO.setId(teamNode.get("id").asInt());
-        teamDTO.setScore(teamNode.get("score").asInt());
-        teamDTO.setSog(teamNode.get("sog").asInt());
+        if(teamNode.get("score") != null) {
+            teamDTO.setScore(teamNode.get("score").asInt());
+        }
+        if(teamNode.get("sog") != null) {
+            teamDTO.setSog(teamNode.get("sog").asInt());
+        }
 
         return teamDTO;
     }
@@ -115,10 +134,14 @@ public class NHLApiClient {
         skaterDTO.setHits(skaterNode.get("hits").asInt());
         skaterDTO.setShots(skaterNode.get("sog").asInt());
         skaterDTO.setBlocks(skaterNode.get("blockedShots").asInt());
-        skaterDTO.setTimeOnIce(skaterNode.get("toi").asString());
-        skaterDTO.setShifts(skaterNode.get("shifts").asInt());
-        skaterDTO.setGiveaways(skaterNode.get("giveaways").asInt());
-        skaterDTO.setTakeaways(skaterNode.get("takeaways").asInt());
+        if(skaterNode.get("toi") != null) {
+            skaterDTO.setTimeOnIce(skaterNode.get("toi").asString());
+        } else {
+            skaterDTO.setTimeOnIce("00:00");
+        }
+        skaterDTO.setShifts(skaterNode.get("shifts") != null ? skaterNode.get("shifts").asInt() : 0);
+        skaterDTO.setGiveaways(skaterNode.get("giveaways") != null ?  skaterNode.get("giveaways").asInt() : 0);
+        skaterDTO.setTakeaways(skaterNode.get("takeways") != null ?  skaterNode.get("takeways").asInt() : 0);
 
         return skaterDTO;
 
@@ -138,7 +161,11 @@ public class NHLApiClient {
         if(goalieNode.get("savePctg") != null) {
             goalieDTO.setSavePercentage(goalieNode.get("savePctg").asDouble());
         }
-        goalieDTO.setStarter(goalieNode.get("starter").asBoolean());
+        if(goalieNode.get("starter") != null) {
+            goalieDTO.setStarter(goalieNode.get("starter").asBoolean());
+        } else {
+            goalieDTO.setStarter(false);
+        }
 
         return goalieDTO;
     }

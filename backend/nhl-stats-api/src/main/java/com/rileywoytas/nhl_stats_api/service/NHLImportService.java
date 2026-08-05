@@ -14,12 +14,13 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 public class NHLImportService {
@@ -96,80 +97,89 @@ public class NHLImportService {
 
     }
 
-    public int importSeasonBoxScores(String season) throws Exception {
+    public String importSeasonBoxScores(String season) throws Exception {
 
         List<Game> games = gameRepository.findAllBySeason(season);
 
-        for(Game game : games){
-            BoxScoreDTO boxScoreDTO = apiClient.getBoxScore(game.getNhlId().toString());
+        List<Long> gameIds = gameRepository.getNonFutureNhlIdsBySeason(season);
+        List<BoxScoreDTO> boxScoreDTOS = new ArrayList<>();
+        int totalPlayerGameStats = 0;
+        Long start = System.currentTimeMillis();
+        for(List<Long> batch : partition(gameIds, 50)){
+            List<CompletableFuture<BoxScoreDTO>> futures = batch.stream()
+                    .map(id -> CompletableFuture.supplyAsync(() -> apiClient.getBoxScore(id.toString()))).toList();
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+            futures.stream().map(CompletableFuture::join).forEach(boxScoreDTOS::add);
+        }
+        Long batchRequestTime = (System.currentTimeMillis() - start) / 1000;
+
+        start = System.currentTimeMillis();
+        Set<Long> allGameIds = boxScoreDTOS.stream()
+                .map(BoxScoreDTO::getId)
+                .collect(Collectors.toSet());
+
+
+        Set<Integer> allPlayerIds = boxScoreDTOS.stream().flatMap(b -> Stream.concat(
+                b.getSkaters().stream().map(SkaterDTO::getPlayerId),
+                b.getGoalies().stream().map(GoalieDTO::getPlayerId)
+        )).collect(Collectors.toSet());
+
+//        Map<Long, Game> gameMap = gameRepository.findByNhlIdIn(allGameIds).stream()
+//                .collect(Collectors.toMap(Game::getNhlId, Function.identity()));
+//
+//        Map<Integer, Player> playerMap = playerRepository.findByNhlIdIn(allPlayerIds).stream()
+//                .collect(Collectors.toMap(Player::getNhlId, Function.identity()));
+
+//        List<PlayerGameStats> statsList = boxScoreDTOS.stream()
+//                .flatMap(box -> parsePlayerGameStatsFromBoxScoreDTO(box).stream())
+//                .toList();
+
+        List<Game> gamesList = new ArrayList<>();
+        List<PlayerGameStats> statsList = new ArrayList<>();
+
+        for (BoxScoreDTO boxScoreDTO : boxScoreDTOS) {
+            Game game = parseGameFromBoxScoreDTO(boxScoreDTO);
+            gamesList.add(game);
+            statsList.addAll(parsePlayerGameStatsFromBoxScoreDTO(boxScoreDTO));
         }
 
-        return -1;
+        Long parseBoxScoresTime = (System.currentTimeMillis() - start) / 1000;
+
+        start = System.currentTimeMillis();
+
+        for (List<Game> chunk : partition(gamesList, 500)) {
+            gameRepository.saveAll(chunk);
+        }
+
+        for(List<PlayerGameStats> chunk : partition(statsList, 500)){
+            playerGameStatsRepository.saveAll(chunk);
+        }
+        Long batchSaveTime = (System.currentTimeMillis() - start) / 1000;
+
+        Long totalImportTime = batchRequestTime + parseBoxScoresTime + batchSaveTime;
+
+        return "Imported " + totalPlayerGameStats + " players game stats across " + games.size() + " games in " +  totalImportTime + "s." +
+                "\nBatch Request Time: " + batchRequestTime  + "s" +
+                "\nParse Boxscores Time: " + parseBoxScoresTime + "s" +
+                "\nBatch Save Time: " + batchSaveTime + "s";
     }
 
-    public int importGameBoxScores(String gameNhlId) throws Exception {
+    public int importGameBoxScores(String gameNhlId) {
         BoxScoreDTO boxScoreDTO = apiClient.getBoxScore(gameNhlId);
 
-        Game game = gameRepository.findByNhlId(boxScoreDTO.getId()).orElseGet(Game::new);
-        game.setNhlId(boxScoreDTO.getId());
-        game.setHomeScore(boxScoreDTO.getHomeTeam().getScore());
-        game.setAwayScore(boxScoreDTO.getAwayTeam().getScore());
-        game.setHomeShots(boxScoreDTO.getHomeTeam().getSog());
-        game.setAwayShots(boxScoreDTO.getAwayTeam().getSog());
-        game.setGameState(boxScoreDTO.getGameState());
-        game.setGameEndType(boxScoreDTO.getGameEndType());
-        gameRepository.save(game);
+        if(boxScoreDTO == null){
+            return 0;
+        } else {
 
-//        Map<Integer, Player> playerMap = playerRepository.findAll()
-//                .stream()
-//                .collect(Collectors.toMap(Player::getNhlId, t -> t));
+            Game game = parseGameFromBoxScoreDTO(boxScoreDTO);
+            gameRepository.save(game);
 
-        List<PlayerGameStats> playerGameStatsList = new ArrayList<>();
-        for(SkaterDTO skater : boxScoreDTO.getSkaters()){
-            PlayerGameStats playerGameStats = playerGameStatsRepository.findByPlayerIdAndGameId(skater.getPlayerId(), game.getNhlId())
-                    .orElseGet(PlayerGameStats::new);
+            List<PlayerGameStats> playerGameStatsList = parsePlayerGameStatsFromBoxScoreDTO(boxScoreDTO);
 
-            playerGameStats.setPlayerId(skater.getPlayerId());
-            playerGameStats.setGameId(game.getNhlId());
-            playerGameStats.setPosition(skater.getPosition());
-            playerGameStats.setGoals(skater.getGoals());
-            playerGameStats.setAssists(skater.getAssists());
-            playerGameStats.setPlusMinus(skater.getPlusMinus());
-            playerGameStats.setPim(skater.getPim());
-            playerGameStats.setHits(skater.getHits());
-            playerGameStats.setShots(skater.getShots());
-            playerGameStats.setBlocks(skater.getBlocks());
-            playerGameStats.setTimeOnIceSeconds(parseToSeconds(skater.getTimeOnIce()));
-            playerGameStats.setShifts(skater.getShifts());
-            playerGameStats.setGiveaways(skater.getGiveaways());
-            playerGameStats.setTakeaways(skater.getTakeaways());
+            playerGameStatsRepository.saveAll(playerGameStatsList);
 
-            playerGameStatsList.add(playerGameStats);
+            return playerGameStatsList.size();
         }
-
-        for(GoalieDTO goalieDTO : boxScoreDTO.getGoalies()){
-            PlayerGameStats playerGameStats = playerGameStatsRepository.findByPlayerIdAndGameId(goalieDTO.getPlayerId(), game.getNhlId())
-                    .orElseGet(PlayerGameStats::new);
-
-            playerGameStats.setPlayerId(goalieDTO.getPlayerId());
-            playerGameStats.setGameId(game.getNhlId());
-            playerGameStats.setTimeOnIceSeconds(parseToSeconds(goalieDTO.getTimeOnIce()));
-            playerGameStats.setSaves(goalieDTO.getSaves());
-            playerGameStats.setShotsAgainst(goalieDTO.getShotsAgainst());
-            playerGameStats.setEvenStrengthGoalsAgainst(goalieDTO.getEvenStrengthGoalsAgainst());
-            playerGameStats.setPowerPlayGoalsAgainst(goalieDTO.getPowerPlayGoalsAgainst());
-            playerGameStats.setShorthandedGoalsAgainst(goalieDTO.getShorthandedGoalsAgainst());
-            playerGameStats.setGoalsAgainst(goalieDTO.getGoalsAgainst());
-            playerGameStats.setSavePercentage(goalieDTO.getSavePercentage());
-            playerGameStats.setStarter(goalieDTO.getStarter());
-            playerGameStats.setPosition("G");
-
-            playerGameStatsList.add(playerGameStats);
-        }
-
-        playerGameStatsRepository.saveAll(playerGameStatsList);
-
-        return playerGameStatsList.size();
     }
 
 
@@ -202,6 +212,54 @@ public class NHLImportService {
         game.setGameState(boxScoreDTO.getGameState());
         game.setGameEndType(boxScoreDTO.getGameEndType());
         return game;
+    }
+
+    private List<PlayerGameStats> parsePlayerGameStatsFromBoxScoreDTO(BoxScoreDTO boxScoreDTO) {
+        List<PlayerGameStats> playerGameStatsList = new ArrayList<>();
+        for(SkaterDTO skater : boxScoreDTO.getSkaters()){
+            PlayerGameStats playerGameStats = playerGameStatsRepository.findByPlayerIdAndGameId(skater.getPlayerId(), boxScoreDTO.getId())
+                    .orElseGet(PlayerGameStats::new);
+
+
+            playerGameStats.setPlayerId(skater.getPlayerId());
+            playerGameStats.setGameId(boxScoreDTO.getId());
+            playerGameStats.setPosition(skater.getPosition());
+            playerGameStats.setGoals(skater.getGoals());
+            playerGameStats.setAssists(skater.getAssists());
+            playerGameStats.setPlusMinus(skater.getPlusMinus());
+            playerGameStats.setPim(skater.getPim());
+            playerGameStats.setHits(skater.getHits());
+            playerGameStats.setShots(skater.getShots());
+            playerGameStats.setBlocks(skater.getBlocks());
+            playerGameStats.setTimeOnIceSeconds(parseToSeconds(skater.getTimeOnIce()));
+            playerGameStats.setShifts(skater.getShifts());
+            playerGameStats.setGiveaways(skater.getGiveaways());
+            playerGameStats.setTakeaways(skater.getTakeaways());
+
+            playerGameStatsList.add(playerGameStats);
+        }
+
+        for(GoalieDTO goalieDTO : boxScoreDTO.getGoalies()){
+            PlayerGameStats playerGameStats = playerGameStatsRepository.findByPlayerIdAndGameId(goalieDTO.getPlayerId(), boxScoreDTO.getId())
+                    .orElseGet(PlayerGameStats::new);
+
+            playerGameStats.setPlayerId(goalieDTO.getPlayerId());
+            playerGameStats.setGameId(boxScoreDTO.getId());
+            playerGameStats.setTimeOnIceSeconds(parseToSeconds(goalieDTO.getTimeOnIce()));
+            playerGameStats.setSaves(goalieDTO.getSaves());
+            playerGameStats.setShotsAgainst(goalieDTO.getShotsAgainst());
+            playerGameStats.setEvenStrengthGoalsAgainst(goalieDTO.getEvenStrengthGoalsAgainst());
+            playerGameStats.setPowerPlayGoalsAgainst(goalieDTO.getPowerPlayGoalsAgainst());
+            playerGameStats.setShorthandedGoalsAgainst(goalieDTO.getShorthandedGoalsAgainst());
+            playerGameStats.setGoalsAgainst(goalieDTO.getGoalsAgainst());
+            playerGameStats.setSavePercentage(goalieDTO.getSavePercentage());
+            playerGameStats.setStarter(goalieDTO.getStarter());
+            playerGameStats.setPosition("G");
+
+            playerGameStatsList.add(playerGameStats);
+        }
+
+        return playerGameStatsList;
     }
 
     private List<Player> parsePlayers(String jsonResponse, String enclosingFieldName){
@@ -292,12 +350,21 @@ public class NHLImportService {
                 gameType = node.get("gameType").asInt();
             }
 
+            game.setGameState(node.get("gameState").asString());
             game.setGameType(mapGameType(gameType));
 
             gameList.add(game);
         }
 
         return gameList;
+    }
+
+    private <T> List<List<T>> partition(List<T> list, int size){
+        List<List<T>> partitions = new ArrayList<>();
+        for(int i = 0; i < list.size(); i+= size){
+            partitions.add(list.subList(i, Math.min(i + size, list.size())));
+        }
+        return partitions;
     }
 
     private int parseToSeconds(String time){

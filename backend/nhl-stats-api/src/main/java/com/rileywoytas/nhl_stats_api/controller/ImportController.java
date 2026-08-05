@@ -16,12 +16,12 @@ public class ImportController {
         this.importService = importService;
     }
 
-    @PostMapping("/boxscores/{season}")
-    public int importSeasonBoxScores(@PathVariable String season) throws Exception{
+    @PostMapping("/boxscore/season/{season}")
+    public String importSeasonBoxScores(@PathVariable String season) throws Exception{
         return importService.importSeasonBoxScores(season);
     }
 
-    @PostMapping("/boxscore/{game}")
+    @PostMapping("/boxscore/game/{game}")
     public int importGameBoxScore(@PathVariable String game) throws Exception{
         return importService.importGameBoxScores(game);
     }
