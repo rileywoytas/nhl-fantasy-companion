@@ -6,6 +6,13 @@ function formatFantasyPoints(v) {
   return v.toFixed(1);
 }
 
+function formatToi(seconds) {
+  if (seconds === null || seconds === undefined || Number.isNaN(seconds)) return '—';
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 export const SKATER_COLUMNS = [
   { key: 'gamesPlayed', label: 'GP' },
   { key: 'goals', label: 'G' },
@@ -19,6 +26,7 @@ export const SKATER_COLUMNS = [
   { key: 'powerPlayPoints', label: 'PPP' },
   { key: 'shorthandedGoals', label: 'SHG' },
   { key: 'gameWinningGoals', label: 'GWG' },
+  { key: 'avgToiSeconds', label: 'TOI/G', format: formatToi },
   { key: 'fantasyPoints', label: 'FPTS', highlight: true, format: formatFantasyPoints },
 ];
 

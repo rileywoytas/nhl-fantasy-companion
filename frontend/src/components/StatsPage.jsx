@@ -44,7 +44,11 @@ export function StatsPage() {
 
         return matchesSearch && matchesFilter;
       })
-      .map((p) => ({ ...p, fantasyPoints: calculateFantasyPoints(p) }));
+      .map((p) => ({
+        ...p,
+        fantasyPoints: calculateFantasyPoints(p),
+        avgToiSeconds: p.gamesPlayed ? p.timeOnIceSeconds / p.gamesPlayed : null,
+      }));
   }, [players, searchTerm, positionFilter]);
 
   // League rank by fantasy points, computed against the full season pool

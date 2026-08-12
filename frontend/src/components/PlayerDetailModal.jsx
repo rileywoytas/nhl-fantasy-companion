@@ -78,7 +78,7 @@ function SeasonSnapshot({ player, isGoalie, rankInfo }) {
   return (
     <div className="border-b border-rink-border px-5 py-3">
       <div className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted">
-        Season Snapshot · {player.gamesPlayed ?? 0} GP
+        Season Stats · {player.gamesPlayed ?? 0} GP
       </div>
       <div className="flex flex-wrap items-center gap-4">
         {isGoalie ? (
@@ -97,22 +97,24 @@ function SeasonSnapshot({ player, isGoalie, rankInfo }) {
             <SnapshotStat label="PPP" value={player.powerPlayPoints} />
             <SnapshotStat label="SHG" value={player.shorthandedGoals} />
             <SnapshotStat label="GWG" value={player.gameWinningGoals} />
+            <SnapshotStat
+              label="TOI/G"
+              value={player.gamesPlayed ? formatToi(player.timeOnIceSeconds / player.gamesPlayed) : '—'}
+            />
           </>
         )}
         <div className="ml-auto flex items-center gap-2">
           {currentRank.data && (
             <button
               onClick={() => setRankModeIndex((i) => (i + 1) % rankModes.length)}
-              className="flex flex-col items-center rounded bg-panel-alt px-3 py-1 transition-colors hover:bg-rink-border/50"
+              className="flex flex-col items-center justify-center rounded border border-amber/40 bg-panel-alt px-3 py-1 transition-colors hover:border-amber hover:bg-rink-border/50"
               title="Click to change rank scope"
             >
               <span className="font-mono text-[10px] text-muted">{currentRank.label}</span>
-              <span className="font-mono text-sm font-bold text-amber-light">
-                #{currentRank.data.rank} <span className="text-muted">of {currentRank.data.total}</span>
-              </span>
+              <span className="font-mono text-base font-bold text-amber-light">{currentRank.data.rank}</span>
             </button>
           )}
-          <div className="flex flex-col items-center rounded bg-panel-alt px-3 py-1">
+          <div className="flex flex-col items-center justify-center rounded bg-panel-alt px-3 py-1">
             <span className="font-mono text-[10px] text-muted">Season FPTS</span>
             <span className="font-mono text-base font-bold text-amber-light">
               {player.fantasyPoints !== undefined ? formatFpts(player.fantasyPoints) : '—'}
@@ -152,16 +154,16 @@ export function PlayerDetailModal({ player, season, rankInfo, onClose }) {
             )}
             <div>
               <div className="flex items-center gap-3">
+                <h2 className="font-mono text-3xl font-bold text-ink">
+                  {player.firstName} {player.lastName}
+                </h2>
                 {player.teamLogo && (
                   <img
                     src={player.teamLogo}
                     alt={player.teamTriCode ?? ''}
-                    className="h-16 w-16 object-contain"
+                    className="h-20 w-20 object-contain"
                   />
                 )}
-                <h2 className="font-mono text-3xl font-bold text-ink">
-                  {player.firstName} {player.lastName}
-                </h2>
               </div>
               <div className="mt-1 flex items-center gap-2">
                 <PosBadge position={player.position} />
@@ -180,7 +182,7 @@ export function PlayerDetailModal({ player, season, rankInfo, onClose }) {
 
         <SeasonSnapshot player={player} isGoalie={isGoalie} rankInfo={rankInfo} />
 
-        <div className="max-h-[60vh] overflow-y-auto px-5 py-4">
+        <div className="max-h-[60vh] overflow-y-auto px-5 py-4 themed-scrollbar">
           {status === 'loading' && (
             <p className="py-8 text-center font-mono text-sm text-muted">Loading game log…</p>
           )}
