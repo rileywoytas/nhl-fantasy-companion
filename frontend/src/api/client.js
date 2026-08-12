@@ -6,13 +6,19 @@ async function request(path, options = {}) {
     ...options,
   });
 
+  const contentType = res.headers.get('content-type') || '';
+  const isJson = contentType.includes('application/json');
+  const body = isJson ? await res.json().catch(() => null) : await res.text();
+
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`${res.status} ${res.statusText}${body ? ` — ${body}` : ''}`);
+    const message = isJson ? JSON.stringify(body) : body;
+    throw new Error(`${res.status} ${res.statusText}${message ? ` — ${message}` : ''}`);
   }
 
-  if (res.status === 204) return null;
-  return res.json();
+  return body;
 }
 
-export const apiClient = { get: (path) => request(path) };
+export const apiClient = {
+  get: (path) => request(path),
+  post: (path) => request(path, { method: 'POST' }),
+};

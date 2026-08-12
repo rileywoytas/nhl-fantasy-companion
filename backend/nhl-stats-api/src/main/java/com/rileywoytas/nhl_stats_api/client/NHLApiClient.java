@@ -10,7 +10,6 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
-import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -61,13 +60,13 @@ public class NHLApiClient {
     // fantasy-relevant fields (PPP/SHG/GWG, goalie W/L/SHO) that the
     // gamecenter box score endpoint doesn't expose per-player.
     public String getSkaterSeasonSummary(String season, int gameTypeId) {
-        String cayenneExp = "seasonId=" + season + "%20and%20gameTypeId=" + gameTypeId;
+        String cayenneExp = "seasonId=" + season + " and gameTypeId=" + gameTypeId;
         String url = "https://api.nhle.com/stats/rest/en/skater/summary?isAggregate=true&isGame=false&limit=-1&cayenneExp=" + cayenneExp;
         return restTemplate.getForObject(url, String.class);
     }
 
     public String getGoalieSeasonSummary(String season, int gameTypeId) {
-        String cayenneExp = "seasonId=" + season + "%20and%20gameTypeId=" + gameTypeId;
+        String cayenneExp = "seasonId=" + season + " and gameTypeId=" + gameTypeId;
         String url = "https://api.nhle.com/stats/rest/en/goalie/summary?isAggregate=true&isGame=false&limit=-1&cayenneExp=" + cayenneExp;
         return restTemplate.getForObject(url, String.class);
     }
