@@ -2,15 +2,17 @@ import { useMemo, useState } from 'react';
 import { Header } from './components/Header';
 import { SearchBar } from './components/SearchBar';
 import { PositionFilter } from './components/PositionFilter';
-import { PlayerTable } from './components/PlayerTable';
+import { StatsTable } from './components/StatsTable';
 import { usePlayerStats } from './hooks/usePlayerStats';
+import { normalizePosition } from './utils/position';
+import { SKATER_COLUMNS, GOALIE_COLUMNS, ALL_COLUMNS } from './config/statColumns';
 
 const DEFAULT_SEASON = '20252026'; // adjust to match your `games.season` format
 
 function App() {
   const [season, setSeason] = useState(DEFAULT_SEASON);
   const [searchTerm, setSearchTerm] = useState('');
-  const [position, setPosition] = useState('ALL');
+  const [positionFilter, setPositionFilter] = useState('ALL');
 
   const { players, status, error } = usePlayerStats(season);
 
@@ -19,10 +21,20 @@ function App() {
       const matchesSearch =
         !searchTerm ||
         `${p.firstName} ${p.lastName}`.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesPosition = position === 'ALL' || p.position === position;
-      return matchesSearch && matchesPosition;
+
+      const pos = normalizePosition(p.position);
+      let matchesFilter;
+      if (positionFilter === 'ALL') matchesFilter = true;
+      else if (positionFilter === 'SKATERS') matchesFilter = pos !== 'G';
+      else matchesFilter = pos === positionFilter;
+
+      return matchesSearch && matchesFilter;
     });
-  }, [players, searchTerm, position]);
+  }, [players, searchTerm, positionFilter]);
+
+  const columns =
+    positionFilter === 'G' ? GOALIE_COLUMNS : positionFilter === 'ALL' ? ALL_COLUMNS : SKATER_COLUMNS;
+  const defaultSortKey = positionFilter === 'G' ? 'savePercentage' : 'points';
 
   return (
     <div className="min-h-screen bg-graphite">
@@ -40,7 +52,7 @@ function App() {
               aria-label="Season"
             />
           </div>
-          <PositionFilter value={position} onChange={setPosition} />
+          <PositionFilter value={positionFilter} onChange={setPositionFilter} />
         </div>
 
         {status === 'loading' && (
@@ -53,7 +65,9 @@ function App() {
           </p>
         )}
 
-        {status === 'success' && <PlayerTable players={filteredPlayers} />}
+        {status === 'success' && (
+          <StatsTable players={filteredPlayers} columns={columns} defaultSortKey={defaultSortKey} />
+        )}
       </main>
     </div>
   );
