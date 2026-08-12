@@ -24,6 +24,11 @@ public class GameController {
         return gameService.getAllGames();
     }
 
+    @GetMapping("/seasons")
+    public List<String> getSeasons() {
+        return gameService.getAvailableSeasons();
+    }
+
     @PostMapping("/import/{startingYear}")
     public int importGames(@PathVariable int startingYear) throws Exception{
         return importService.importGames(startingYear);

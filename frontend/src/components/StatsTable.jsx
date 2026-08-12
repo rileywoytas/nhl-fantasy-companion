@@ -7,7 +7,7 @@ function formatValue(col, value) {
   return value;
 }
 
-export function StatsTable({ players, columns, defaultSortKey }) {
+export function StatsTable({ players, columns, defaultSortKey, onRowClick }) {
   const [sortKey, setSortKey] = useState(defaultSortKey);
   const [sortDir, setSortDir] = useState('desc');
 
@@ -74,7 +74,10 @@ export function StatsTable({ players, columns, defaultSortKey }) {
           {sortedPlayers.map((p, i) => (
             <tr
               key={p.playerId}
-              className={`border-t border-rink-border ${i % 2 === 0 ? 'bg-graphite' : 'bg-panel-alt'}`}
+              onClick={() => onRowClick && onRowClick(p)}
+              className={`border-t border-rink-border ${i % 2 === 0 ? 'bg-graphite' : 'bg-panel-alt'} ${
+                onRowClick ? 'cursor-pointer hover:bg-panel' : ''
+              }`}
             >
               <td className="px-3 py-2 text-left">
                 <div className="flex items-center gap-2">

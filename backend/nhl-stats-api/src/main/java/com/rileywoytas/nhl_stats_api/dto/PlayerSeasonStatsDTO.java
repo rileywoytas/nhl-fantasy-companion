@@ -12,6 +12,7 @@ public class PlayerSeasonStatsDTO {
     private String position;
     private String teamTriCode;
     private String headshot;
+    private String teamLogo;
 
     private String season;
     private String gameType; // REGULAR_SEASON or PLAYOFFS

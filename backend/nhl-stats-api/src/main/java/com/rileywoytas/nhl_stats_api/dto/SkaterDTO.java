@@ -12,6 +12,8 @@ public class SkaterDTO {
     private Integer playerId;
     private String position;
 
+    private Integer teamId;
+
     private Integer goals;
     private Integer assists;
     private Integer points;

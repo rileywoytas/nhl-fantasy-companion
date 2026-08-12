@@ -10,6 +10,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
+import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -103,29 +104,43 @@ public class NHLApiClient {
 
             if (root.get("playerByGameStats").get("homeTeam") != null){
                 JsonNode homePlayers = root.get("playerByGameStats").get("homeTeam");
+                Integer homeTeamId = boxScoreDTO.getHomeTeam().getId();
 
                 homePlayers.get("forwards").forEach(forward -> {
-                    boxScoreDTO.getSkaters().add(parseSkater(forward));
+                    SkaterDTO skater = parseSkater(forward);
+                    skater.setTeamId(homeTeamId);
+                    boxScoreDTO.getSkaters().add(skater);
                 });
                 homePlayers.get("defense").forEach(defense -> {
-                    boxScoreDTO.getSkaters().add(parseSkater(defense));
+                    SkaterDTO skater = parseSkater(defense);
+                    skater.setTeamId(homeTeamId);
+                    boxScoreDTO.getSkaters().add(skater);
                 });
                 homePlayers.get("goalies").forEach(goalie -> {
-                    boxScoreDTO.getGoalies().add(parseGoalie(goalie));
+                    GoalieDTO goalieDTO = parseGoalie(goalie);
+                    goalieDTO.setTeamId(homeTeamId);
+                    boxScoreDTO.getGoalies().add(goalieDTO);
                 });
 
             }
             if(root.get("playerByGameStats").get("awayTeam") != null) {
                 JsonNode awayPlayers = root.get("playerByGameStats").get("awayTeam");
+                Integer awayTeamId = boxScoreDTO.getAwayTeam().getId();
 
                 awayPlayers.get("forwards").forEach(forward -> {
-                    boxScoreDTO.getSkaters().add(parseSkater(forward));
+                    SkaterDTO skater = parseSkater(forward);
+                    skater.setTeamId(awayTeamId);
+                    boxScoreDTO.getSkaters().add(skater);
                 });
                 awayPlayers.get("defense").forEach(defense -> {
-                    boxScoreDTO.getSkaters().add(parseSkater(defense));
+                    SkaterDTO skater = parseSkater(defense);
+                    skater.setTeamId(awayTeamId);
+                    boxScoreDTO.getSkaters().add(skater);
                 });
                 awayPlayers.get("goalies").forEach(goalie -> {
-                    boxScoreDTO.getGoalies().add(parseGoalie(goalie));
+                    GoalieDTO goalieDTO = parseGoalie(goalie);
+                    goalieDTO.setTeamId(awayTeamId);
+                    boxScoreDTO.getGoalies().add(goalieDTO);
                 });
             }
         } else {

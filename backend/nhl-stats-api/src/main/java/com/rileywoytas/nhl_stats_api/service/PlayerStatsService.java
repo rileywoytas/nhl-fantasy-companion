@@ -1,10 +1,12 @@
 package com.rileywoytas.nhl_stats_api.service;
 
+import com.rileywoytas.nhl_stats_api.dto.PlayerGameLogEntryDTO;
 import com.rileywoytas.nhl_stats_api.dto.PlayerSeasonStatsDTO;
 import com.rileywoytas.nhl_stats_api.entity.GameType;
 import com.rileywoytas.nhl_stats_api.entity.Player;
 import com.rileywoytas.nhl_stats_api.entity.PlayerAdvancedSeasonStats;
 import com.rileywoytas.nhl_stats_api.repository.PlayerAdvancedSeasonStatsRepository;
+import com.rileywoytas.nhl_stats_api.repository.PlayerGameLogEntryProjection;
 import com.rileywoytas.nhl_stats_api.repository.PlayerGameStatsRepository;
 import com.rileywoytas.nhl_stats_api.repository.PlayerRepository;
 import com.rileywoytas.nhl_stats_api.repository.PlayerSeasonTotalsProjection;
@@ -78,6 +80,7 @@ public class PlayerStatsService {
             dto.setLastName(player.getLastName());
             dto.setPosition(player.getPosition());
             dto.setHeadshot(player.getHeadshot());
+            dto.setTeamLogo(player.getTeamLogo());
             if (player.getTeam() != null) {
                 dto.setTeamTriCode(player.getTeam().getTriCode());
             }
@@ -115,6 +118,34 @@ public class PlayerStatsService {
             dto.setShutouts(advanced.getShutouts());
         }
 
+        return dto;
+    }
+
+    public List<PlayerGameLogEntryDTO> getGameLog(String season, String gameType, Integer playerNhlId) {
+        return playerGameStatsRepository.findGameLog(playerNhlId, season, gameType).stream()
+                .map(this::toGameLogDto)
+                .collect(Collectors.toList());
+    }
+
+    private PlayerGameLogEntryDTO toGameLogDto(PlayerGameLogEntryProjection p) {
+        PlayerGameLogEntryDTO dto = new PlayerGameLogEntryDTO();
+        dto.setGameDate(p.getGameDate());
+        dto.setOpponent(p.getOpponent());
+        dto.setIsHome(p.getIsHome());
+        dto.setGoals(p.getGoals());
+        dto.setAssists(p.getAssists());
+        dto.setPoints(p.getPoints());
+        dto.setPlusMinus(p.getPlusMinus());
+        dto.setShots(p.getShots());
+        dto.setHits(p.getHits());
+        dto.setBlocks(p.getBlocks());
+        dto.setPim(p.getPim());
+        dto.setTimeOnIceSeconds(p.getTimeOnIceSeconds());
+        dto.setSaves(p.getSaves());
+        dto.setShotsAgainst(p.getShotsAgainst());
+        dto.setGoalsAgainst(p.getGoalsAgainst());
+        dto.setSavePercentage(p.getSavePercentage());
+        dto.setStarter(p.getStarter());
         return dto;
     }
 }

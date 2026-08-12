@@ -20,6 +20,9 @@ public interface GameRepository extends JpaRepository<Game, UUID> {
 
     List<Game> findAllBySeason(String season);
 
+    @Query("SELECT DISTINCT g.season FROM Game g ORDER BY g.season DESC")
+    List<String> findDistinctSeasons();
+
     @Query("SELECT g.nhlId FROM Game g WHERE g.season = :season")
     List<Long> getAllNhlIdsBySeason(@Param("season") String season);
 

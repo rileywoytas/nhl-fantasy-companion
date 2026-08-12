@@ -320,6 +320,7 @@ public class NHLImportService {
 
             playerGameStats.setPlayerId(skater.getPlayerId());
             playerGameStats.setGameId(boxScoreDTO.getId());
+            playerGameStats.setTeamId(skater.getTeamId() != null ? skater.getTeamId().longValue() : null);
             playerGameStats.setPosition(skater.getPosition());
             playerGameStats.setGoals(skater.getGoals());
             playerGameStats.setAssists(skater.getAssists());
@@ -342,6 +343,7 @@ public class NHLImportService {
 
             playerGameStats.setPlayerId(goalieDTO.getPlayerId());
             playerGameStats.setGameId(boxScoreDTO.getId());
+            playerGameStats.setTeamId(goalieDTO.getTeamId() != null ? goalieDTO.getTeamId().longValue() : null);
             playerGameStats.setTimeOnIceSeconds(parseToSeconds(goalieDTO.getTimeOnIce()));
             playerGameStats.setSaves(goalieDTO.getSaves());
             playerGameStats.setShotsAgainst(goalieDTO.getShotsAgainst());

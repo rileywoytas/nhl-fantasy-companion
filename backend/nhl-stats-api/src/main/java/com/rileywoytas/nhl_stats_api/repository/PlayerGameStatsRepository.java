@@ -74,4 +74,36 @@ public interface PlayerGameStatsRepository extends JpaRepository<PlayerGameStats
             """, nativeQuery = true)
     Optional<PlayerSeasonTotalsProjection> findSeasonTotalsForPlayer(
             @Param("season") String season, @Param("gameType") String gameType, @Param("playerId") Integer playerId);
+
+    // Per-game stat log for a player, most recent first. Opponent/home-away
+    // are derived by comparing the player's team for that game (team_id,
+    // an NHL team id) against the game's home team NHL id.
+    @Query(value = """
+            SELECT
+                g.game_date::text AS gameDate,
+                CASE WHEN pgs.team_id = ht.nhl_id THEN at.tri_code ELSE ht.tri_code END AS opponent,
+                CASE WHEN pgs.team_id = ht.nhl_id THEN true ELSE false END AS isHome,
+                pgs.goals AS goals,
+                pgs.assists AS assists,
+                (pgs.goals + pgs.assists) AS points,
+                pgs.plus_minus AS plusMinus,
+                pgs.shots AS shots,
+                pgs.hits AS hits,
+                pgs.blocks AS blocks,
+                pgs.pim AS pim,
+                pgs.time_on_ice_seconds AS timeOnIceSeconds,
+                pgs.saves AS saves,
+                pgs.shots_against AS shotsAgainst,
+                pgs.goals_against AS goalsAgainst,
+                pgs.save_percentage AS savePercentage,
+                pgs.starter AS starter
+            FROM player_game_stats pgs
+            JOIN games g ON g.nhl_id = pgs.game_id
+            JOIN teams ht ON ht.id = g.home_team_id
+            JOIN teams at ON at.id = g.away_team_id
+            WHERE pgs.player_id = :playerId AND g.season = :season AND g.game_type = :gameType
+            ORDER BY g.game_date DESC
+            """, nativeQuery = true)
+    List<PlayerGameLogEntryProjection> findGameLog(
+            @Param("playerId") Integer playerId, @Param("season") String season, @Param("gameType") String gameType);
 }

@@ -1,5 +1,6 @@
 package com.rileywoytas.nhl_stats_api.controller;
 
+import com.rileywoytas.nhl_stats_api.dto.PlayerGameLogEntryDTO;
 import com.rileywoytas.nhl_stats_api.dto.PlayerSeasonStatsDTO;
 import com.rileywoytas.nhl_stats_api.entity.GameType;
 import com.rileywoytas.nhl_stats_api.entity.Player;
@@ -49,6 +50,14 @@ public class PlayerController {
         return playerStatsService.getSeasonTotalsForPlayer(season, gameType, nhlId)
                 .orElseThrow(() -> new RuntimeException(
                         "No stats found for player " + nhlId + " in " + season + " (" + gameType + ")"));
+    }
+
+    @GetMapping("/{nhlId}/games/{season}")
+    public List<PlayerGameLogEntryDTO> getPlayerGameLog(
+            @PathVariable Integer nhlId,
+            @PathVariable String season,
+            @RequestParam(defaultValue = "REGULAR_SEASON") String gameType) {
+        return playerStatsService.getGameLog(season, gameType, nhlId);
     }
 
     @PostMapping("/import/skaters")

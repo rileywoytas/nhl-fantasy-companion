@@ -10,6 +10,8 @@ public class GoalieDTO {
 
     private Integer playerId;
 
+    private Integer teamId;
+
     @JsonProperty("toi")
     private String timeOnIce;
 

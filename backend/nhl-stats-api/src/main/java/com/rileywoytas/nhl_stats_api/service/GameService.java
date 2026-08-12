@@ -22,4 +22,8 @@ public class GameService {
     public List<Game> getAllGamesBySeason(String season) {
         return gameRepository.findAllBySeason(season);
     }
+
+    public List<String> getAvailableSeasons() {
+        return gameRepository.findDistinctSeasons();
+    }
 }
