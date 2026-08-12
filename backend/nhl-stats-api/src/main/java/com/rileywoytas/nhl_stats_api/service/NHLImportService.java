@@ -6,6 +6,7 @@ import com.rileywoytas.nhl_stats_api.dto.GoalieDTO;
 import com.rileywoytas.nhl_stats_api.dto.SkaterDTO;
 import com.rileywoytas.nhl_stats_api.entity.*;
 import com.rileywoytas.nhl_stats_api.repository.GameRepository;
+import com.rileywoytas.nhl_stats_api.repository.PlayerAdvancedSeasonStatsRepository;
 import com.rileywoytas.nhl_stats_api.repository.PlayerGameStatsRepository;
 import com.rileywoytas.nhl_stats_api.repository.PlayerRepository;
 import com.rileywoytas.nhl_stats_api.repository.TeamRepository;
@@ -30,6 +31,7 @@ public class NHLImportService {
     private final PlayerRepository playerRepository;
     private final GameRepository gameRepository;
     private final PlayerGameStatsRepository playerGameStatsRepository;
+    private final PlayerAdvancedSeasonStatsRepository advancedStatsRepository;
     private final ObjectMapper mapper;
 
     private static final int CURRENT_SEASON_START_YEAR = 2025;
@@ -40,12 +42,14 @@ public class NHLImportService {
                             PlayerRepository playerRepository,
                             GameRepository gameRepository,
                             PlayerGameStatsRepository playerGameStatsRepository,
+                            PlayerAdvancedSeasonStatsRepository advancedStatsRepository,
                             ObjectMapper mapper) {
         this.apiClient = apiClient;
         this.teamRepository = teamRepository;
         this.playerRepository = playerRepository;
         this.gameRepository = gameRepository;
         this.playerGameStatsRepository = playerGameStatsRepository;
+        this.advancedStatsRepository = advancedStatsRepository;
         this.mapper = mapper;
         this.logger = Logger.getLogger(NHLImportService.class.getName());
     }
@@ -95,6 +99,99 @@ public class NHLImportService {
 
         return goalieList.size();
 
+    }
+
+    // Backfills players who have box score stats but no row in `players` —
+    // typically players who've left the league since box scores started
+    // being imported. Fetches each individually from the player landing
+    // endpoint, so this can be slow for large batches; each player is
+    // isolated in a try/catch so one bad/missing ID doesn't abort the rest.
+    public String backfillMissingPlayers() {
+        List<Integer> missingIds = playerRepository.findPlayerIdsMissingFromPlayers();
+
+        Map<String, Team> teamMap = teamRepository.findAll()
+                .stream()
+                .collect(Collectors.toMap(Team::getTriCode, t -> t));
+
+        List<Player> playersToSave = new ArrayList<>();
+        List<Integer> failedIds = new ArrayList<>();
+
+        for (Integer nhlId : missingIds) {
+            try {
+                String response = apiClient.getPlayerLanding(nhlId);
+                if (response == null) {
+                    failedIds.add(nhlId);
+                    continue;
+                }
+
+                Player player = parsePlayerLanding(response, teamMap);
+                if (player != null) {
+                    playersToSave.add(player);
+                } else {
+                    failedIds.add(nhlId);
+                }
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Failed to backfill player " + nhlId + ": " + e.getMessage());
+                failedIds.add(nhlId);
+            }
+        }
+
+        for (List<Player> chunk : partition(playersToSave, 500)) {
+            playerRepository.saveAll(chunk);
+        }
+
+        return "Backfilled " + playersToSave.size() + " of " + missingIds.size() + " missing players." +
+                (failedIds.isEmpty() ? "" : " Failed IDs: " + failedIds);
+    }
+
+    private Player parsePlayerLanding(String jsonResponse, Map<String, Team> teamMap) {
+        JsonNode root = mapper.readTree(jsonResponse);
+
+        if (root.get("playerId") == null) {
+            return null;
+        }
+
+        Integer nhlId = root.get("playerId").asInt();
+        Player player = playerRepository.findByNhlId(nhlId).orElseGet(Player::new);
+        player.setNhlId(nhlId);
+
+        if (root.get("firstName") != null && root.get("firstName").get("default") != null) {
+            player.setFirstName(root.get("firstName").get("default").asString());
+        }
+        if (root.get("lastName") != null && root.get("lastName").get("default") != null) {
+            player.setLastName(root.get("lastName").get("default").asString());
+        }
+        if (root.get("sweaterNumber") != null) {
+            player.setSweaterNumber(root.get("sweaterNumber").asInt());
+        } else {
+            player.setSweaterNumber(-1);
+        }
+        if (root.get("headshot") != null) {
+            player.setHeadshot(root.get("headshot").asString());
+        }
+        if (root.get("position") != null) {
+            player.setPosition(root.get("position").asString());
+        }
+
+        // The landing endpoint uses "currentTeamAbbrev" (unlike the current
+        // skaters/goalies leaders endpoints, which use "teamAbbrev") since it
+        // also carries team history. Falling back to "teamAbbrev" just in
+        // case the shape differs from what's expected here.
+        JsonNode teamAbbrevNode = root.get("currentTeamAbbrev") != null
+                ? root.get("currentTeamAbbrev")
+                : root.get("teamAbbrev");
+
+        if (teamAbbrevNode != null) {
+            Team team = teamMap.get(teamAbbrevNode.asString());
+            if (team != null) {
+                player.setTeam(team);
+                if (root.get("teamLogo") != null) {
+                    player.setTeamLogo(root.get("teamLogo").asString());
+                }
+            }
+        }
+
+        return player;
     }
 
     public String importSeasonBoxScores(String season) throws Exception {
@@ -386,5 +483,86 @@ public class NHLImportService {
             case 3 -> GameType.PLAYOFFS;
             default -> throw new IllegalArgumentException("Unknown game type: " + gameType);
         };
+    }
+
+    private int mapGameTypeToId(GameType gameType) {
+        return switch (gameType) {
+            case PRESEASON -> 1;
+            case REGULAR_SEASON -> 2;
+            case PLAYOFFS -> 3;
+        };
+    }
+
+    // Imports season-total PPP/SHG/GWG for skaters from the Stats REST API.
+    public String importAdvancedSkaterStats(String season, GameType gameType) throws Exception {
+        int gameTypeId = mapGameTypeToId(gameType);
+        String response = apiClient.getSkaterSeasonSummary(season, gameTypeId);
+
+        JsonNode root = mapper.readTree(response);
+        JsonNode data = root.get("data");
+
+        List<PlayerAdvancedSeasonStats> statsList = new ArrayList<>();
+        if (data != null) {
+            for (JsonNode node : data) {
+                if (node.get("playerId") == null) continue;
+                Integer playerId = node.get("playerId").asInt();
+
+                PlayerAdvancedSeasonStats stats = advancedStatsRepository
+                        .findByPlayerIdAndSeasonAndGameType(playerId, season, gameType)
+                        .orElseGet(PlayerAdvancedSeasonStats::new);
+
+                stats.setPlayerId(playerId);
+                stats.setSeason(season);
+                stats.setGameType(gameType);
+                stats.setPowerPlayPoints(node.get("ppPoints") != null ? node.get("ppPoints").asInt() : null);
+                stats.setShorthandedGoals(node.get("shGoals") != null ? node.get("shGoals").asInt() : null);
+                stats.setGameWinningGoals(node.get("gameWinningGoals") != null ? node.get("gameWinningGoals").asInt() : null);
+
+                statsList.add(stats);
+            }
+        }
+
+        for (List<PlayerAdvancedSeasonStats> chunk : partition(statsList, 500)) {
+            advancedStatsRepository.saveAll(chunk);
+        }
+
+        return "Imported advanced stats for " + statsList.size() + " skaters (" + season + ", " + gameType + ").";
+    }
+
+    // Imports season-total W/L/OTL/SHO for goalies from the Stats REST API.
+    public String importAdvancedGoalieStats(String season, GameType gameType) throws Exception {
+        int gameTypeId = mapGameTypeToId(gameType);
+        String response = apiClient.getGoalieSeasonSummary(season, gameTypeId);
+
+        JsonNode root = mapper.readTree(response);
+        JsonNode data = root.get("data");
+
+        List<PlayerAdvancedSeasonStats> statsList = new ArrayList<>();
+        if (data != null) {
+            for (JsonNode node : data) {
+                if (node.get("playerId") == null) continue;
+                Integer playerId = node.get("playerId").asInt();
+
+                PlayerAdvancedSeasonStats stats = advancedStatsRepository
+                        .findByPlayerIdAndSeasonAndGameType(playerId, season, gameType)
+                        .orElseGet(PlayerAdvancedSeasonStats::new);
+
+                stats.setPlayerId(playerId);
+                stats.setSeason(season);
+                stats.setGameType(gameType);
+                stats.setWins(node.get("wins") != null ? node.get("wins").asInt() : null);
+                stats.setLosses(node.get("losses") != null ? node.get("losses").asInt() : null);
+                stats.setOtLosses(node.get("otLosses") != null ? node.get("otLosses").asInt() : null);
+                stats.setShutouts(node.get("shutouts") != null ? node.get("shutouts").asInt() : null);
+
+                statsList.add(stats);
+            }
+        }
+
+        for (List<PlayerAdvancedSeasonStats> chunk : partition(statsList, 500)) {
+            advancedStatsRepository.saveAll(chunk);
+        }
+
+        return "Imported advanced stats for " + statsList.size() + " goalies (" + season + ", " + gameType + ").";
     }
 }

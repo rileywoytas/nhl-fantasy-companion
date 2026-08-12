@@ -39,10 +39,10 @@ public interface PlayerGameStatsRepository extends JpaRepository<PlayerGameStats
                      ELSE NULL END AS savePercentage
             FROM player_game_stats pgs
             JOIN games g ON g.nhl_id = pgs.game_id
-            WHERE g.season = :season
+            WHERE g.season = :season AND g.game_type = :gameType
             GROUP BY pgs.player_id, g.season
             """, nativeQuery = true)
-    List<PlayerSeasonTotalsProjection> findSeasonTotals(@Param("season") String season);
+    List<PlayerSeasonTotalsProjection> findSeasonTotals(@Param("season") String season, @Param("gameType") String gameType);
 
     @Query(value = """
             SELECT
@@ -69,8 +69,9 @@ public interface PlayerGameStatsRepository extends JpaRepository<PlayerGameStats
                      ELSE NULL END AS savePercentage
             FROM player_game_stats pgs
             JOIN games g ON g.nhl_id = pgs.game_id
-            WHERE g.season = :season AND pgs.player_id = :playerId
+            WHERE g.season = :season AND g.game_type = :gameType AND pgs.player_id = :playerId
             GROUP BY pgs.player_id, g.season
             """, nativeQuery = true)
-    Optional<PlayerSeasonTotalsProjection> findSeasonTotalsForPlayer(@Param("season") String season, @Param("playerId") Integer playerId);
+    Optional<PlayerSeasonTotalsProjection> findSeasonTotalsForPlayer(
+            @Param("season") String season, @Param("gameType") String gameType, @Param("playerId") Integer playerId);
 }

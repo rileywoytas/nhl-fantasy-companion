@@ -14,6 +14,7 @@ public class PlayerSeasonStatsDTO {
     private String headshot;
 
     private String season;
+    private String gameType; // REGULAR_SEASON or PLAYOFFS
     private Long gamesPlayed;
 
     // Skater totals
@@ -35,4 +36,15 @@ public class PlayerSeasonStatsDTO {
     private Long shotsAgainst;
     private Long goalsAgainst;
     private Double savePercentage;
+
+    // Advanced (from Stats REST API) — skater
+    private Integer powerPlayPoints;
+    private Integer shorthandedGoals;
+    private Integer gameWinningGoals;
+
+    // Advanced (from Stats REST API) — goalie
+    private Integer wins;
+    private Integer losses;
+    private Integer otLosses;
+    private Integer shutouts;
 }

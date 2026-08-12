@@ -42,6 +42,36 @@ public class NHLApiClient {
         return restTemplate.getForObject(url, String.class);
     }
 
+    // Used to backfill players who have box score stats but aren't in the
+    // players table (retired/left the league since box scores were imported).
+    // Returns null if the NHL API doesn't have a record for this ID (very old
+    // player IDs sometimes 404 or 500).
+    public String getPlayerLanding(Integer playerId) {
+        String url = "https://api-web.nhle.com/v1/player/" + playerId + "/landing";
+        try {
+            return restTemplate.getForObject(url, String.class);
+        } catch (Exception e) {
+            Logger.getLogger(NHLApiClient.class.getName())
+                    .log(Level.WARNING, "Failed to fetch player landing for id " + playerId + ": " + e.getMessage());
+            return null;
+        }
+    }
+
+    // Season-total reports from the separate Stats REST API. Used for
+    // fantasy-relevant fields (PPP/SHG/GWG, goalie W/L/SHO) that the
+    // gamecenter box score endpoint doesn't expose per-player.
+    public String getSkaterSeasonSummary(String season, int gameTypeId) {
+        String cayenneExp = "seasonId=" + season + "%20and%20gameTypeId=" + gameTypeId;
+        String url = "https://api.nhle.com/stats/rest/en/skater/summary?isAggregate=true&isGame=false&limit=-1&cayenneExp=" + cayenneExp;
+        return restTemplate.getForObject(url, String.class);
+    }
+
+    public String getGoalieSeasonSummary(String season, int gameTypeId) {
+        String cayenneExp = "seasonId=" + season + "%20and%20gameTypeId=" + gameTypeId;
+        String url = "https://api.nhle.com/stats/rest/en/goalie/summary?isAggregate=true&isGame=false&limit=-1&cayenneExp=" + cayenneExp;
+        return restTemplate.getForObject(url, String.class);
+    }
+
     public BoxScoreDTO getBoxScore(String gameNhlId) {
         String url = "https://api-web.nhle.com/v1/gamecenter/" + gameNhlId + "/boxscore";
         String response = restTemplate.getForObject(url, String.class);
