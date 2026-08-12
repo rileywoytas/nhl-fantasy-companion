@@ -16,7 +16,7 @@ export function StatsPage() {
   const { seasons, status: seasonsStatus } = useSeasons();
   const [season, setSeason] = useState(FALLBACK_SEASON);
   const [searchTerm, setSearchTerm] = useState('');
-  const [positionFilter, setPositionFilter] = useState('ALL');
+  const [positionFilter, setPositionFilter] = useState('SKATERS');
   const [selectedPlayer, setSelectedPlayer] = useState(null);
 
   // Once the real seasons list loads, default to the most recent one
@@ -47,12 +47,61 @@ export function StatsPage() {
       .map((p) => ({ ...p, fantasyPoints: calculateFantasyPoints(p) }));
   }, [players, searchTerm, positionFilter]);
 
+  // League rank by fantasy points, computed against the full season pool
+  // (not the current search/position filter). Provides three scopes so the
+  // modal's rank toggle has real data for each: overall (everyone), category
+  // (skaters vs. goalies, since their scoring formulas aren't comparable),
+  // and exact position (e.g. just LW).
+  const rankById = useMemo(() => {
+    const withFpts = players.map((p) => ({
+      ...p,
+      fantasyPoints: calculateFantasyPoints(p),
+      pos: normalizePosition(p.position),
+    }));
+
+    const byRank = (list) => {
+      const sorted = [...list].sort((a, b) => b.fantasyPoints - a.fantasyPoints);
+      const map = new Map();
+      sorted.forEach((p, i) => map.set(p.playerId, { rank: i + 1, total: sorted.length }));
+      return map;
+    };
+
+    const overallRanks = byRank(withFpts);
+    const skaters = withFpts.filter((p) => p.pos !== 'G');
+    const goalies = withFpts.filter((p) => p.pos === 'G');
+    const skaterRanks = byRank(skaters);
+    const goalieRanks = byRank(goalies);
+
+    const positionGroups = {};
+    skaters.forEach((p) => {
+      if (!positionGroups[p.pos]) positionGroups[p.pos] = [];
+      positionGroups[p.pos].push(p);
+    });
+    const positionRanksByPos = {};
+    Object.entries(positionGroups).forEach(([pos, list]) => {
+      positionRanksByPos[pos] = byRank(list);
+    });
+
+    const result = new Map();
+    withFpts.forEach((p) => {
+      const isG = p.pos === 'G';
+      result.set(p.playerId, {
+        overall: overallRanks.get(p.playerId),
+        category: isG
+          ? { ...goalieRanks.get(p.playerId), label: 'Goalies' }
+          : { ...skaterRanks.get(p.playerId), label: 'Skaters' },
+        position: !isG ? { ...positionRanksByPos[p.pos]?.get(p.playerId), label: p.pos } : null,
+      });
+    });
+    return result;
+  }, [players]);
+
   const columns =
     positionFilter === 'G' ? GOALIE_COLUMNS : positionFilter === 'ALL' ? ALL_COLUMNS : SKATER_COLUMNS;
   const defaultSortKey = 'fantasyPoints';
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-6">
+    <main className="mx-auto max-w-[1600px] px-6 py-6">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <SearchBar value={searchTerm} onChange={setSearchTerm} />
@@ -96,7 +145,13 @@ export function StatsPage() {
       )}
 
       {selectedPlayer && (
-        <PlayerDetailModal player={selectedPlayer} season={season} onClose={() => setSelectedPlayer(null)} />
+        <PlayerDetailModal
+          key={selectedPlayer.playerId}
+          player={selectedPlayer}
+          season={season}
+          rankInfo={rankById.get(selectedPlayer.playerId)}
+          onClose={() => setSelectedPlayer(null)}
+        />
       )}
     </main>
   );

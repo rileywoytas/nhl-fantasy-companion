@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { usePlayerGameLog } from '../hooks/usePlayerGameLog';
 import { PosBadge } from './PosBadge';
 import { normalizePosition } from '../utils/position';
@@ -52,7 +53,28 @@ function SnapshotStat({ label, value }) {
   );
 }
 
-function SeasonSnapshot({ player, isGoalie }) {
+// Builds the ordered list of rank scopes to cycle through when the rank
+// badge is clicked. Goalies get two (overall, goalies-only); skaters get
+// three (overall, skaters-only, exact position).
+function buildRankModes(rankInfo, isGoalie) {
+  if (isGoalie) {
+    return [
+      { label: 'FPTS Rank', data: rankInfo?.overall },
+      { label: 'FPTS Rank (Goalies)', data: rankInfo?.category },
+    ];
+  }
+  return [
+    { label: 'FPTS Rank', data: rankInfo?.overall },
+    { label: 'FPTS Rank (Skaters)', data: rankInfo?.category },
+    { label: `FPTS Rank (${rankInfo?.position?.label ?? ''})`, data: rankInfo?.position },
+  ];
+}
+
+function SeasonSnapshot({ player, isGoalie, rankInfo }) {
+  const rankModes = buildRankModes(rankInfo, isGoalie);
+  const [rankModeIndex, setRankModeIndex] = useState(0);
+  const currentRank = rankModes[rankModeIndex];
+
   return (
     <div className="border-b border-rink-border px-5 py-3">
       <div className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted">
@@ -77,18 +99,32 @@ function SeasonSnapshot({ player, isGoalie }) {
             <SnapshotStat label="GWG" value={player.gameWinningGoals} />
           </>
         )}
-        <div className="ml-auto flex flex-col items-center rounded bg-panel-alt px-3 py-1">
-          <span className="font-mono text-[10px] text-muted">Season FPTS</span>
-          <span className="font-mono text-base font-bold text-amber-light">
-            {player.fantasyPoints !== undefined ? formatFpts(player.fantasyPoints) : '—'}
-          </span>
+        <div className="ml-auto flex items-center gap-2">
+          {currentRank.data && (
+            <button
+              onClick={() => setRankModeIndex((i) => (i + 1) % rankModes.length)}
+              className="flex flex-col items-center rounded bg-panel-alt px-3 py-1 transition-colors hover:bg-rink-border/50"
+              title="Click to change rank scope"
+            >
+              <span className="font-mono text-[10px] text-muted">{currentRank.label}</span>
+              <span className="font-mono text-sm font-bold text-amber-light">
+                #{currentRank.data.rank} <span className="text-muted">of {currentRank.data.total}</span>
+              </span>
+            </button>
+          )}
+          <div className="flex flex-col items-center rounded bg-panel-alt px-3 py-1">
+            <span className="font-mono text-[10px] text-muted">Season FPTS</span>
+            <span className="font-mono text-base font-bold text-amber-light">
+              {player.fantasyPoints !== undefined ? formatFpts(player.fantasyPoints) : '—'}
+            </span>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-export function PlayerDetailModal({ player, season, onClose }) {
+export function PlayerDetailModal({ player, season, rankInfo, onClose }) {
   const isGoalie = normalizePosition(player.position) === 'G';
   const { games, status, error } = usePlayerGameLog(player.playerId, season);
   const columns = isGoalie ? GOALIE_LOG_COLUMNS : SKATER_LOG_COLUMNS;
@@ -99,38 +135,50 @@ export function PlayerDetailModal({ player, season, onClose }) {
       onClick={onClose}
     >
       <div
-        className="w-full max-w-3xl rounded-md border border-rink-border bg-panel"
+        className="w-full max-w-4xl rounded-md border border-rink-border bg-panel"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-rink-border px-5 py-4">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between border-b border-rink-border px-6 py-6">
+          <div className="flex items-center gap-5">
             {player.headshot && (
               <img
                 src={player.headshot}
                 alt=""
-                className="h-12 w-12 rounded-full border border-rink-border bg-panel-alt object-cover"
+                className="h-28 w-28 rounded-full border-2 border-rink-border bg-panel-alt object-cover"
                 onError={(e) => {
                   e.currentTarget.style.display = 'none';
                 }}
               />
             )}
-            <div className="flex items-center gap-2">
-              <h2 className="font-mono text-lg font-bold text-ink">
-                {player.firstName} {player.lastName}
-              </h2>
-              <PosBadge position={player.position} />
-              {player.teamLogo && (
-                <img src={player.teamLogo} alt={player.teamTriCode ?? ''} className="h-5 w-5" />
-              )}
-              <span className="font-mono text-xs text-muted">{player.teamTriCode ?? '—'}</span>
+            <div>
+              <div className="flex items-center gap-3">
+                {player.teamLogo && (
+                  <img
+                    src={player.teamLogo}
+                    alt={player.teamTriCode ?? ''}
+                    className="h-16 w-16 object-contain"
+                  />
+                )}
+                <h2 className="font-mono text-3xl font-bold text-ink">
+                  {player.firstName} {player.lastName}
+                </h2>
+              </div>
+              <div className="mt-1 flex items-center gap-2">
+                <PosBadge position={player.position} />
+                <span className="font-mono text-sm text-muted">{player.teamTriCode ?? '—'}</span>
+              </div>
             </div>
           </div>
-          <button onClick={onClose} className="font-mono text-sm text-muted hover:text-ink" aria-label="Close">
+          <button
+            onClick={onClose}
+            className="font-mono text-lg text-muted hover:text-ink"
+            aria-label="Close"
+          >
             ✕
           </button>
         </div>
 
-        <SeasonSnapshot player={player} isGoalie={isGoalie} />
+        <SeasonSnapshot player={player} isGoalie={isGoalie} rankInfo={rankInfo} />
 
         <div className="max-h-[60vh] overflow-y-auto px-5 py-4">
           {status === 'loading' && (
