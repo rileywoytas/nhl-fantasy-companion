@@ -30,7 +30,7 @@ export function calculateSkaterFantasyPoints(p) {
     n(p.goals) * SKATER_SCORING.goals +
     n(p.assists) * SKATER_SCORING.assists +
     n(p.plusMinus) * SKATER_SCORING.plusMinus +
-    n(p.powerPlayPoints) * SKATER_SCORING.powerPlayPoints +
+    (n(p.powerPlayGoals) + n(p.powerPlayAssists)) * SKATER_SCORING.powerPlayPoints +
     n(p.shorthandedGoals) * SKATER_SCORING.shorthandedGoals +
     n(p.gameWinningGoals) * SKATER_SCORING.gameWinningGoals +
     n(p.blocks) * SKATER_SCORING.blocks

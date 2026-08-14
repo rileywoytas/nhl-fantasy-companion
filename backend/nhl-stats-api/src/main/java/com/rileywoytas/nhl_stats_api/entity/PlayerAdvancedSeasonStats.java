@@ -29,7 +29,8 @@ public class PlayerAdvancedSeasonStats {
     private GameType gameType;
 
     // Skater
-    private Integer powerPlayPoints;
+    private Integer powerPlayGoals;
+    private Integer powerPlayAssists;
     private Integer shorthandedGoals;
     private Integer gameWinningGoals;
 

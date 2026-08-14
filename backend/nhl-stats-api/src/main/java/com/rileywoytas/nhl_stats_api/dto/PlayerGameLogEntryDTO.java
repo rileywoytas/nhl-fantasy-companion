@@ -17,7 +17,8 @@ public class PlayerGameLogEntryDTO {
     private Integer blocks;
     private Integer pim;
     private Integer timeOnIceSeconds;
-    private Integer powerPlayPoints;
+    private Integer powerPlayGoals;
+    private Integer powerPlayAssists;
     private Integer shorthandedGoals;
     private Integer gameWinningGoals;
     private String goalHighlightUrl;

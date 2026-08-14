@@ -35,6 +35,13 @@ function formatFpts(v) {
   return v.toFixed(1);
 }
 
+// NHL's API returns highlight URLs as "https://nhl.com/video/..." (no www),
+// and that bare apex domain 522s — only the www subdomain resolves properly.
+function fixHighlightUrl(url) {
+  if (!url) return url;
+  return url.replace('https://nhl.com/', 'https://www.nhl.com/');
+}
+
 const SKATER_LOG_COLUMNS = [
   { key: 'goals', label: 'G' },
   { key: 'assists', label: 'A' },
@@ -44,6 +51,10 @@ const SKATER_LOG_COLUMNS = [
   { key: 'hits', label: 'HIT' },
   { key: 'blocks', label: 'BLK' },
   { key: 'pim', label: 'PIM' },
+  { key: 'powerPlayGoals', label: 'PPG' },
+  { key: 'powerPlayAssists', label: 'PPA' },
+  { key: 'shorthandedGoals', label: 'SHG' },
+  { key: 'gameWinningGoals', label: 'GWG' },
 ];
 
 const GOALIE_LOG_COLUMNS = [
@@ -107,7 +118,8 @@ function SeasonSnapshot({ player, isGoalie, rankInfo }) {
             <SnapshotStat label="G" value={player.goals} />
             <SnapshotStat label="A" value={player.assists} />
             <SnapshotStat label="PTS" value={player.points} />
-            <SnapshotStat label="PPP" value={player.powerPlayPoints} />
+            <SnapshotStat label="PPG" value={player.powerPlayGoals} />
+            <SnapshotStat label="PPA" value={player.powerPlayAssists} />
             <SnapshotStat label="SHG" value={player.shorthandedGoals} />
             <SnapshotStat label="GWG" value={player.gameWinningGoals} />
             <SnapshotStat
@@ -179,7 +191,8 @@ function PlayoffSnapshot({ stats, status, isGoalie }) {
             <SnapshotStat label="G" value={stats.goals} />
             <SnapshotStat label="A" value={stats.assists} />
             <SnapshotStat label="PTS" value={stats.points} />
-            <SnapshotStat label="PPP" value={stats.powerPlayPoints} />
+            <SnapshotStat label="PPG" value={stats.powerPlayGoals} />
+            <SnapshotStat label="PPA" value={stats.powerPlayAssists} />
             <SnapshotStat label="SHG" value={stats.shorthandedGoals} />
             <SnapshotStat label="GWG" value={stats.gameWinningGoals} />
             <SnapshotStat
@@ -267,17 +280,17 @@ export function PlayerDetailModal({ player, season, rankInfo, onClose }) {
             <>
               <table className="w-full font-mono text-sm">
                 <thead>
-                  <tr className="border-b border-rink-border">
-                    <th className="px-2 py-1.5 text-left text-xs font-bold text-muted">Date</th>
-                    <th className="px-2 py-1.5 text-left text-xs font-bold text-muted">Opp</th>
-                    <th className="px-2 py-1.5 text-xs font-bold text-muted"></th>
+                  <tr>
+                    <th className="sticky top-0 z-10 border-b border-rink-border bg-panel px-2 py-1.5 text-left text-xs font-bold text-muted">Date</th>
+                    <th className="sticky top-0 z-10 border-b border-rink-border bg-panel px-2 py-1.5 text-left text-xs font-bold text-muted">Opp</th>
+                    <th className="sticky top-0 z-10 border-b border-rink-border bg-panel px-2 py-1.5 text-xs font-bold text-muted"></th>
                     {columns.map((c) => (
-                      <th key={c.key} className="px-2 py-1.5 text-right text-xs font-bold text-muted">
+                      <th key={c.key} className="sticky top-0 z-10 border-b border-rink-border bg-panel px-2 py-1.5 text-right text-xs font-bold text-muted">
                         {c.label}
                       </th>
                     ))}
-                    <th className="px-2 py-1.5 text-right text-xs font-bold text-muted">TOI</th>
-                    <th className="px-2 py-1.5 text-right text-xs font-bold text-amber-light">FPTS</th>
+                    <th className="sticky top-0 z-10 border-b border-rink-border bg-panel px-2 py-1.5 text-right text-xs font-bold text-muted">TOI</th>
+                    <th className="sticky top-0 z-10 border-b border-rink-border bg-panel px-2 py-1.5 text-right text-xs font-bold text-amber-light">FPTS</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -295,7 +308,7 @@ export function PlayerDetailModal({ player, season, rankInfo, onClose }) {
                         <td className="px-2 py-1.5 text-center">
                           {g.goalHighlightUrl && (
                             <a
-                              href={g.goalHighlightUrl}
+                              href={fixHighlightUrl(g.goalHighlightUrl)}
                               target="_blank"
                               rel="noopener noreferrer"
                               onClick={(e) => e.stopPropagation()}
@@ -326,7 +339,7 @@ export function PlayerDetailModal({ player, season, rankInfo, onClose }) {
               <p className="mt-2 text-[11px] italic text-muted">
                 {isGoalie
                   ? 'Per-game FPTS excludes W/L/SHO — goalie decisions aren\'t tracked per game, only as season totals. See Season FPTS above for the full total.'
-                  : 'Per-game FPTS includes real PPP/SHG/GWG once "Import Per-Game Scoring Details" has been run for this season (Data tab). Until then, those categories show as 0 for games not yet processed — Season FPTS above is unaffected either way.'}
+                  : 'Per-game FPTS includes real PPG/PPA/SHG/GWG once "Import Per-Game Scoring Details" has been run for this season (Data tab). Until then, those categories show as 0 for games not yet processed — Season FPTS above is unaffected either way.'}
               </p>
             </>
           )}

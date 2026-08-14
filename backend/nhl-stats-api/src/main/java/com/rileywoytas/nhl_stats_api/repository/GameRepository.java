@@ -28,4 +28,18 @@ public interface GameRepository extends JpaRepository<Game, UUID> {
 
     @Query("SELECT g.nhlId FROM Game g WHERE g.season = :season AND g.gameState <> 'FUT'")
     List<Long> getNonFutureNhlIdsBySeason(@Param("season") String season);
+
+    // Games in the season that still have at least one PlayerGameStats row
+    // missing per-game scoring detail (power_play_goals is the sentinel —
+    // applyGameScoringDetails always sets it for every player in a game
+    // together, so a null there means the whole game hasn't been processed
+    // yet). Used to make importGameScoringDetails resumable: re-running it
+    // only touches what's left, instead of redoing the whole season.
+    @Query(value = """
+            SELECT DISTINCT g.nhl_id
+            FROM games g
+            JOIN player_game_stats pgs ON pgs.game_id = g.nhl_id
+            WHERE g.season = :season AND g.game_state <> 'FUT' AND pgs.power_play_goals IS NULL
+            """, nativeQuery = true)
+    List<Long> getNhlIdsMissingScoringDetailsBySeason(@Param("season") String season);
 }

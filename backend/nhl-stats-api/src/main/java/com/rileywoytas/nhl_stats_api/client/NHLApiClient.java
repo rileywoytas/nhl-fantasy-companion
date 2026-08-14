@@ -18,16 +18,20 @@ import java.util.logging.Logger;
 @Component
 public class NHLApiClient {
 
-    private final RestTemplate restTemplate = buildRestTemplate();
+    private final RestTemplate restTemplate = buildRestTemplate(5000, 20000);
+    // The "landing" endpoint returns a much heavier payload (full scoring
+    // summary) than the box score, and times out much more easily under
+    // concurrent load — give it more headroom.
+    private final RestTemplate landingRestTemplate = buildRestTemplate(5000, 30000);
     private final ObjectMapper mapper = new ObjectMapper();
 
     // Bare `new RestTemplate()` has no timeouts at all, so a single stalled
     // connection can hang indefinitely. Reasonable bounds here mean a slow
     // request fails fast enough for the retry logic below to actually help.
-    private static RestTemplate buildRestTemplate() {
+    private static RestTemplate buildRestTemplate(int connectTimeoutMs, int readTimeoutMs) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(5000);
-        factory.setReadTimeout(10000);
+        factory.setConnectTimeout(connectTimeoutMs);
+        factory.setReadTimeout(readTimeoutMs);
         return new RestTemplate(factory);
     }
 
@@ -87,20 +91,20 @@ public class NHLApiClient {
     // import means occasional transient I/O failures (timeouts, connection
     // resets) are expected, not exceptional. Retrying a couple times with a
     // short backoff resolves most of them without giving up on the caller.
-    private String getWithRetry(String url, String description) {
+    private String getWithRetry(RestTemplate client, String url, String description) {
         int maxAttempts = 3;
         Exception lastException = null;
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
-                return restTemplate.getForObject(url, String.class);
+                return client.getForObject(url, String.class);
             } catch (Exception e) {
                 lastException = e;
                 Logger.getLogger(NHLApiClient.class.getName()).log(Level.WARNING,
                         "Attempt " + attempt + "/" + maxAttempts + " failed fetching " + description + ": " + e.getMessage());
                 if (attempt < maxAttempts) {
                     try {
-                        Thread.sleep(500L * attempt);
+                        Thread.sleep(1000L * attempt);
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                         break;
@@ -114,7 +118,7 @@ public class NHLApiClient {
 
     public BoxScoreDTO getBoxScore(String gameNhlId) {
         String url = "https://api-web.nhle.com/v1/gamecenter/" + gameNhlId + "/boxscore";
-        String response = getWithRetry(url, "box score for game " + gameNhlId);
+        String response = getWithRetry(restTemplate, url, "box score for game " + gameNhlId);
         return parseBoxScore(response);
     }
 
@@ -123,7 +127,7 @@ public class NHLApiClient {
     // score doesn't. Used to derive per-game PPP/SHG/GWG.
     public String getGameLanding(String gameNhlId) {
         String url = "https://api-web.nhle.com/v1/gamecenter/" + gameNhlId + "/landing";
-        return getWithRetry(url, "landing for game " + gameNhlId);
+        return getWithRetry(landingRestTemplate, url, "landing for game " + gameNhlId);
     }
 
     private BoxScoreDTO parseBoxScore(String response) {

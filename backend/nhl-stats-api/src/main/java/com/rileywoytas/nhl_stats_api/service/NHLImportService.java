@@ -32,6 +32,7 @@ public class NHLImportService {
     private final GameRepository gameRepository;
     private final PlayerGameStatsRepository playerGameStatsRepository;
     private final PlayerAdvancedSeasonStatsRepository advancedStatsRepository;
+    private final ImportProgressTracker progressTracker;
     private final ObjectMapper mapper;
 
     private static final int CURRENT_SEASON_START_YEAR = 2025;
@@ -43,6 +44,7 @@ public class NHLImportService {
                             GameRepository gameRepository,
                             PlayerGameStatsRepository playerGameStatsRepository,
                             PlayerAdvancedSeasonStatsRepository advancedStatsRepository,
+                            ImportProgressTracker progressTracker,
                             ObjectMapper mapper) {
         this.apiClient = apiClient;
         this.teamRepository = teamRepository;
@@ -50,6 +52,7 @@ public class NHLImportService {
         this.gameRepository = gameRepository;
         this.playerGameStatsRepository = playerGameStatsRepository;
         this.advancedStatsRepository = advancedStatsRepository;
+        this.progressTracker = progressTracker;
         this.mapper = mapper;
         this.logger = Logger.getLogger(NHLImportService.class.getName());
     }
@@ -515,7 +518,14 @@ public class NHLImportService {
                 stats.setPlayerId(playerId);
                 stats.setSeason(season);
                 stats.setGameType(gameType);
-                stats.setPowerPlayPoints(node.get("ppPoints") != null ? node.get("ppPoints").asInt() : null);
+
+                Integer ppGoals = node.get("ppGoals") != null ? node.get("ppGoals").asInt() : null;
+                Integer ppPoints = node.get("ppPoints") != null ? node.get("ppPoints").asInt() : null;
+                stats.setPowerPlayGoals(ppGoals);
+                // The Stats REST API doesn't reliably expose a separate
+                // ppAssists field, but points = goals + assists always holds,
+                // so this is exact, not an approximation.
+                stats.setPowerPlayAssists(ppGoals != null && ppPoints != null ? ppPoints - ppGoals : null);
                 stats.setShorthandedGoals(node.get("shGoals") != null ? node.get("shGoals").asInt() : null);
                 stats.setGameWinningGoals(node.get("gameWinningGoals") != null ? node.get("gameWinningGoals").asInt() : null);
 
@@ -572,14 +582,28 @@ public class NHLImportService {
     // be run after importSeasonBoxScores for the same season, since it only
     // updates rows that already exist.
     public String importGameScoringDetails(String season) throws Exception {
-        List<Long> gameIds = gameRepository.getNonFutureNhlIdsBySeason(season);
+        List<Long> gameIds = gameRepository.getNhlIdsMissingScoringDetailsBySeason(season);
+        int totalGamesInSeason = gameRepository.getNonFutureNhlIdsBySeason(season).size();
+
+        if (gameIds.isEmpty()) {
+            return "All " + totalGamesInSeason + " games already have scoring detail for " + season + " — nothing to do.";
+        }
+
+        progressTracker.reset(season, gameIds.size());
 
         int updatedCount = 0;
         List<Long> failedGameIds = new java.util.concurrent.CopyOnWriteArrayList<>();
 
         Long start = System.currentTimeMillis();
 
-        for (List<Long> batch : partition(gameIds, 50)) {
+        // Smaller batches than the box score import (15 vs 50) — the landing
+        // endpoint returns a much heavier payload (full scoring summary),
+        // and 50 concurrent requests against it was causing widespread read
+        // timeouts, likely from connection contention rather than any one
+        // request being genuinely slow. A short pause between batches gives
+        // the server (and the JVM's connection handling) room to recover
+        // rather than hammering it continuously.
+        for (List<Long> batch : partition(gameIds, 15)) {
             List<CompletableFuture<Map.Entry<Long, String>>> futures = batch.stream()
                     .map(id -> CompletableFuture.supplyAsync(() -> {
                         try {
@@ -587,6 +611,7 @@ public class NHLImportService {
                         } catch (Exception e) {
                             logger.log(Level.WARNING, "Giving up on landing for game " + id + " after retries: " + e.getMessage());
                             failedGameIds.add(id);
+                            progressTracker.recordGameFailed(id);
                             return null;
                         }
                     })).toList();
@@ -602,6 +627,7 @@ public class NHLImportService {
                 } catch (Exception e) {
                     logger.log(Level.WARNING, "Failed to parse landing for game " + entry.getKey() + ": " + e.getMessage());
                     failedGameIds.add(entry.getKey());
+                    progressTracker.recordGameFailed(entry.getKey());
                 }
             }
 
@@ -609,11 +635,22 @@ public class NHLImportService {
                 playerGameStatsRepository.saveAll(chunk);
             }
             updatedCount += toSave.size();
+
+            try {
+                Thread.sleep(300);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                break;
+            }
         }
 
         Long totalImportTime = (System.currentTimeMillis() - start) / 1000;
 
-        String result = "Updated per-game PPP/SHG/GWG for " + updatedCount + " player-game rows in " + totalImportTime + "s.";
+        progressTracker.complete();
+
+        String result = "Updated per-game PPP/SHG/GWG for " + updatedCount + " player-game rows across "
+                + (gameIds.size() - failedGameIds.size()) + " of " + gameIds.size() + " remaining games ("
+                + totalGamesInSeason + " total in season) in " + totalImportTime + "s.";
         if (!failedGameIds.isEmpty()) {
             result += "\nFailed after retries (" + failedGameIds.size() + "): " + failedGameIds
                     + " — re-run this import to retry just these.";
@@ -637,7 +674,8 @@ public class NHLImportService {
         boolean homeWon = homeFinal > awayFinal;
         int losingFinal = Math.min(homeFinal, awayFinal);
 
-        Map<Integer, Integer> ppPointsByPlayer = new HashMap<>();
+        Map<Integer, Integer> ppGoalsByPlayer = new HashMap<>();
+        Map<Integer, Integer> ppAssistsByPlayer = new HashMap<>();
         Map<Integer, Integer> shGoalsByPlayer = new HashMap<>();
         Map<Integer, String> highlightUrlByPlayer = new HashMap<>();
         Integer gwgScorerPlayerId = null;
@@ -659,7 +697,7 @@ public class NHLImportService {
 
                 if (scorerId != null) {
                     if ("pp".equals(strength)) {
-                        ppPointsByPlayer.merge(scorerId, 1, Integer::sum);
+                        ppGoalsByPlayer.merge(scorerId, 1, Integer::sum);
                     } else if ("sh".equals(strength)) {
                         shGoalsByPlayer.merge(scorerId, 1, Integer::sum);
                     }
@@ -674,7 +712,7 @@ public class NHLImportService {
                 if ("pp".equals(strength) && goal.get("assists") != null) {
                     for (JsonNode assist : goal.get("assists")) {
                         if (assist.get("playerId") != null) {
-                            ppPointsByPlayer.merge(assist.get("playerId").asInt(), 1, Integer::sum);
+                            ppAssistsByPlayer.merge(assist.get("playerId").asInt(), 1, Integer::sum);
                         }
                     }
                 }
@@ -699,11 +737,38 @@ public class NHLImportService {
         List<PlayerGameStats> gameRows = playerGameStatsRepository.findByGameId(gameId);
         for (PlayerGameStats stats : gameRows) {
             Integer playerId = stats.getPlayerId();
-            stats.setPowerPlayPoints(ppPointsByPlayer.getOrDefault(playerId, 0));
+            stats.setPowerPlayGoals(ppGoalsByPlayer.getOrDefault(playerId, 0));
+            stats.setPowerPlayAssists(ppAssistsByPlayer.getOrDefault(playerId, 0));
             stats.setShorthandedGoals(shGoalsByPlayer.getOrDefault(playerId, 0));
             stats.setGameWinningGoals(playerId.equals(gwgScorerPlayerId) ? 1 : 0);
             stats.setGoalHighlightUrl(highlightUrlByPlayer.get(playerId));
         }
+
+        String gameDate = root.get("gameDate") != null ? root.get("gameDate").asString() : null;
+        progressTracker.recordGameProcessed(gameId, gameDate, buildProgressSummary(ppGoalsByPlayer, ppAssistsByPlayer, shGoalsByPlayer, gwgScorerPlayerId));
+
         return gameRows;
+    }
+
+    // Builds a short human-readable line for the progress tracker — total
+    // PPG/PPA/SHG counts (cheap, no extra lookups) plus the GWG scorer's
+    // name when there is one (a single extra lookup, rare enough not to
+    // matter).
+    private String buildProgressSummary(Map<Integer, Integer> ppGoalsByPlayer, Map<Integer, Integer> ppAssistsByPlayer, Map<Integer, Integer> shGoalsByPlayer, Integer gwgScorerPlayerId) {
+        int totalPpg = ppGoalsByPlayer.values().stream().mapToInt(Integer::intValue).sum();
+        int totalPpa = ppAssistsByPlayer.values().stream().mapToInt(Integer::intValue).sum();
+        int totalShg = shGoalsByPlayer.values().stream().mapToInt(Integer::intValue).sum();
+
+        StringBuilder summary = new StringBuilder();
+        summary.append(totalPpg).append(" PPG, ").append(totalPpa).append(" PPA, ").append(totalShg).append(" SHG");
+
+        if (gwgScorerPlayerId != null) {
+            String scorerName = playerRepository.findByNhlId(gwgScorerPlayerId)
+                    .map(p -> p.getFirstName() + " " + p.getLastName())
+                    .orElse("player " + gwgScorerPlayerId);
+            summary.append(", GWG: ").append(scorerName);
+        }
+
+        return summary.toString();
     }
 }

@@ -57,7 +57,7 @@ export function StatsTable({ players, columns, defaultSortKey, onRowClick, rankB
     return (
       <th
         onClick={() => handleSort(sortColKey)}
-        className={`cursor-pointer select-none px-3 py-2 text-${align} text-xs font-bold text-muted hover:text-amber-light`}
+        className={`sticky top-0 z-10 cursor-pointer select-none bg-panel px-3 py-2 text-${align} text-xs font-bold text-muted hover:text-amber-light`}
       >
         {label}
         {activeSortKey === sortColKey && (

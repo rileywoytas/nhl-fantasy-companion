@@ -58,7 +58,7 @@ export const ADMIN_ACTIONS = [
     id: 'import-advanced-stats',
     group: 'Advanced Stats',
     label: 'Import Advanced Stats',
-    description: 'Pulls season-total PPP, SHG, GWG for skaters and W/L/OTL/SHO for goalies.',
+    description: 'Pulls season-total PPG, PPA, SHG, GWG for skaters and W/L/OTL/SHO for goalies.',
     endpoint: (v) => `/players/import/advanced-stats?season=${v.season}&gameType=${v.gameType}`,
     fields: [
       { key: 'season', label: 'Season', type: 'text', default: '20252026' },
@@ -76,8 +76,9 @@ export const ADMIN_ACTIONS = [
     group: 'Advanced Stats',
     label: 'Import Per-Game Scoring Details',
     description:
-      'Fills in real per-game PPP/SHG/GWG (used for per-game FPTS in the player modal). Run this after Import Season Box Scores for the same season — it only updates games that are already imported.',
+      'Fills in real per-game PPG/PPA/SHG/GWG (used for per-game FPTS in the player modal). Run this after Import Season Box Scores for the same season — it only updates games that are already imported. Resumable: re-running only processes games not yet done.',
     endpoint: (v) => `/import/scoring-details/season/${v.season}`,
+    progressEndpoint: '/import/scoring-details/progress',
     fields: [{ key: 'season', label: 'Season', type: 'text', default: '20252026' }],
   },
 ];

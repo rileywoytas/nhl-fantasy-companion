@@ -39,7 +39,8 @@ public class PlayerSeasonStatsDTO {
     private Double savePercentage;
 
     // Advanced (from Stats REST API) — skater
-    private Integer powerPlayPoints;
+    private Integer powerPlayGoals;
+    private Integer powerPlayAssists;
     private Integer shorthandedGoals;
     private Integer gameWinningGoals;
 

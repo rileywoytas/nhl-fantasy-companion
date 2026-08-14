@@ -109,7 +109,8 @@ public class PlayerStatsService {
         dto.setSavePercentage(t.getSavePercentage());
 
         if (advanced != null) {
-            dto.setPowerPlayPoints(advanced.getPowerPlayPoints());
+            dto.setPowerPlayGoals(advanced.getPowerPlayGoals());
+            dto.setPowerPlayAssists(advanced.getPowerPlayAssists());
             dto.setShorthandedGoals(advanced.getShorthandedGoals());
             dto.setGameWinningGoals(advanced.getGameWinningGoals());
             dto.setWins(advanced.getWins());
@@ -141,7 +142,8 @@ public class PlayerStatsService {
         dto.setBlocks(p.getBlocks());
         dto.setPim(p.getPim());
         dto.setTimeOnIceSeconds(p.getTimeOnIceSeconds());
-        dto.setPowerPlayPoints(p.getPowerPlayPoints());
+        dto.setPowerPlayGoals(p.getPowerPlayGoals());
+        dto.setPowerPlayAssists(p.getPowerPlayAssists());
         dto.setShorthandedGoals(p.getShorthandedGoals());
         dto.setGameWinningGoals(p.getGameWinningGoals());
         dto.setGoalHighlightUrl(p.getGoalHighlightUrl());

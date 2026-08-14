@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { apiClient } from '../api/client';
 
 function buildEndpoint(action, values) {
@@ -26,10 +26,31 @@ export function ActionCard({ action }) {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [ranAt, setRanAt] = useState(null);
+  const [progress, setProgress] = useState(null);
+  const pollRef = useRef(null);
+
+  // While running, poll the action's progress endpoint (if it declares one)
+  // so long imports show live status instead of a blank "Running…" for
+  // minutes at a time.
+  useEffect(() => {
+    if (status === 'running' && action.progressEndpoint) {
+      const poll = () => {
+        apiClient
+          .get(action.progressEndpoint)
+          .then(setProgress)
+          .catch(() => {}); // progress polling failures are non-critical — just skip this tick
+      };
+      poll();
+      pollRef.current = setInterval(poll, 1200);
+      return () => clearInterval(pollRef.current);
+    }
+    clearInterval(pollRef.current);
+  }, [status, action.progressEndpoint]);
 
   async function handleRun() {
     setStatus('running');
     setError(null);
+    setProgress(null);
     try {
       const response = await apiClient.post(buildEndpoint(action, values));
       setResult(response);
@@ -93,6 +114,26 @@ export function ActionCard({ action }) {
       >
         {status === 'running' ? 'Running…' : 'Run'}
       </button>
+
+      {status === 'running' && progress && (
+        <div className="mt-3 rounded border border-amber/30 bg-panel-alt px-3 py-2">
+          <div className="flex items-center justify-between font-mono text-xs font-bold text-amber-light">
+            <span>
+              {progress.processedGames} / {progress.totalGames} games
+            </span>
+            <span className="text-muted">{progress.elapsedSeconds}s</span>
+          </div>
+          {progress.lastGameId && (
+            <p className="mt-1 font-mono text-[11px] text-muted">
+              Last: game {progress.lastGameId}
+              {progress.lastGameDate ? ` (${progress.lastGameDate})` : ''} — {progress.lastEventSummary}
+            </p>
+          )}
+          {progress.failedGames > 0 && (
+            <p className="mt-1 font-mono text-[11px] text-flag-red">{progress.failedGames} failed so far</p>
+          )}
+        </div>
+      )}
 
       {status === 'success' && summary && (
         <div className="mt-3 rounded border border-flag-green/40 bg-panel-alt px-3 py-2">
