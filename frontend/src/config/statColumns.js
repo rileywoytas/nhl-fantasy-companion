@@ -2,14 +2,22 @@ function formatSavePct(v) {
   return v.toFixed(3).replace(/^0/, '');
 }
 
+function formatWinPct(v) {
+  return v.toFixed(3).replace(/^0/, '');
+}
+
 function formatFantasyPoints(v) {
   return v.toFixed(1);
 }
 
+// Rounds to the nearest whole second first, then splits into minutes/seconds
+// — splitting the unrounded value first could show e.g. "1:60" instead of
+// rolling over to "2:00" when the fractional seconds rounded up to 60.
 function formatToi(seconds) {
   if (seconds === null || seconds === undefined || Number.isNaN(seconds)) return '—';
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
+  const total = Math.round(seconds);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
@@ -37,6 +45,7 @@ export const GOALIE_COLUMNS = [
   { key: 'wins', label: 'W' },
   { key: 'losses', label: 'L' },
   { key: 'otLosses', label: 'OTL' },
+  { key: 'winPct', label: 'W%', format: formatWinPct },
   { key: 'saves', label: 'SV' },
   { key: 'shotsAgainst', label: 'SA' },
   { key: 'goalsAgainst', label: 'GA' },

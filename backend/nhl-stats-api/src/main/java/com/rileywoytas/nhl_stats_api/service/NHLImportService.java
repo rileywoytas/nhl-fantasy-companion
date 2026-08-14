@@ -17,11 +17,9 @@ import tools.jackson.databind.ObjectMapper;
 import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 @Service
 public class NHLImportService {
@@ -35,7 +33,7 @@ public class NHLImportService {
     private final ObjectMapper mapper;
 
     private static final int CURRENT_SEASON_START_YEAR = 2025;
-    private Logger logger;
+    private final Logger logger;
 
     public NHLImportService(NHLApiClient apiClient,
                             TeamRepository teamRepository,
@@ -54,7 +52,7 @@ public class NHLImportService {
         this.logger = Logger.getLogger(NHLImportService.class.getName());
     }
 
-    public int importTeams() throws Exception {
+    public int importTeams() {
         String response = apiClient.getTeams();
 
         JsonNode root = mapper.readTree(response);
@@ -81,7 +79,7 @@ public class NHLImportService {
         return teamList.size();
     }
 
-    public int importSkaters() throws Exception {
+    public int importSkaters() {
         String response = apiClient.getCurrentPlayers();
 
         List<Player> skaterList = parsePlayers(response, "toi");
@@ -91,7 +89,7 @@ public class NHLImportService {
         return skaterList.size();
     }
 
-    public int importGoalies() throws Exception {
+    public int importGoalies() {
         String response = apiClient.getCurrentGoalies();
 
         List<Player> goalieList = parsePlayers(response, "wins");
@@ -194,71 +192,70 @@ public class NHLImportService {
         return player;
     }
 
-    public String importSeasonBoxScores(String season) throws Exception {
+    public String importSeasonBoxScores(String season) {
 
         List<Game> games = gameRepository.findAllBySeason(season);
 
         List<Long> gameIds = gameRepository.getNonFutureNhlIdsBySeason(season);
-        List<BoxScoreDTO> boxScoreDTOS = new ArrayList<>();
         int totalPlayerGameStats = 0;
+        int gamesSaved = 0;
+        List<Long> failedGameIds = new java.util.concurrent.CopyOnWriteArrayList<>();
+
         Long start = System.currentTimeMillis();
-        for(List<Long> batch : partition(gameIds, 50)){
+
+        for (List<Long> batch : partition(gameIds, 50)) {
+            // Isolate each game's fetch so one bad/still-failing request
+            // (after retries inside getBoxScore) doesn't take down the whole
+            // batch — CompletableFuture.join() rethrows by default, which
+            // previously meant a single transient failure aborted the entire
+            // season import and discarded everything fetched so far.
             List<CompletableFuture<BoxScoreDTO>> futures = batch.stream()
-                    .map(id -> CompletableFuture.supplyAsync(() -> apiClient.getBoxScore(id.toString()))).toList();
+                    .map(id -> CompletableFuture.supplyAsync(() -> {
+                        try {
+                            return apiClient.getBoxScore(id.toString());
+                        } catch (Exception e) {
+                            logger.log(Level.WARNING, "Giving up on game " + id + " after retries: " + e.getMessage());
+                            failedGameIds.add(id);
+                            return null;
+                        }
+                    })).toList();
+
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-            futures.stream().map(CompletableFuture::join).forEach(boxScoreDTOS::add);
-        }
-        Long batchRequestTime = (System.currentTimeMillis() - start) / 1000;
+            List<BoxScoreDTO> batchResults = futures.stream()
+                    .map(CompletableFuture::join)
+                    .filter(java.util.Objects::nonNull)
+                    .toList();
 
-        start = System.currentTimeMillis();
-        Set<Long> allGameIds = boxScoreDTOS.stream()
-                .map(BoxScoreDTO::getId)
-                .collect(Collectors.toSet());
+            // Save each batch as it completes rather than accumulating
+            // everything in memory until the end, so progress already made
+            // is never lost even if a later batch has problems.
+            List<Game> gamesList = new ArrayList<>();
+            List<PlayerGameStats> statsList = new ArrayList<>();
+            for (BoxScoreDTO boxScoreDTO : batchResults) {
+                gamesList.add(parseGameFromBoxScoreDTO(boxScoreDTO));
+                statsList.addAll(parsePlayerGameStatsFromBoxScoreDTO(boxScoreDTO));
+            }
 
+            for (List<Game> chunk : partition(gamesList, 500)) {
+                gameRepository.saveAll(chunk);
+            }
+            for (List<PlayerGameStats> chunk : partition(statsList, 500)) {
+                playerGameStatsRepository.saveAll(chunk);
+            }
 
-        Set<Integer> allPlayerIds = boxScoreDTOS.stream().flatMap(b -> Stream.concat(
-                b.getSkaters().stream().map(SkaterDTO::getPlayerId),
-                b.getGoalies().stream().map(GoalieDTO::getPlayerId)
-        )).collect(Collectors.toSet());
-
-//        Map<Long, Game> gameMap = gameRepository.findByNhlIdIn(allGameIds).stream()
-//                .collect(Collectors.toMap(Game::getNhlId, Function.identity()));
-//
-//        Map<Integer, Player> playerMap = playerRepository.findByNhlIdIn(allPlayerIds).stream()
-//                .collect(Collectors.toMap(Player::getNhlId, Function.identity()));
-
-//        List<PlayerGameStats> statsList = boxScoreDTOS.stream()
-//                .flatMap(box -> parsePlayerGameStatsFromBoxScoreDTO(box).stream())
-//                .toList();
-
-        List<Game> gamesList = new ArrayList<>();
-        List<PlayerGameStats> statsList = new ArrayList<>();
-
-        for (BoxScoreDTO boxScoreDTO : boxScoreDTOS) {
-            Game game = parseGameFromBoxScoreDTO(boxScoreDTO);
-            gamesList.add(game);
-            statsList.addAll(parsePlayerGameStatsFromBoxScoreDTO(boxScoreDTO));
+            gamesSaved += gamesList.size();
+            totalPlayerGameStats += statsList.size();
         }
 
-        Long parseBoxScoresTime = (System.currentTimeMillis() - start) / 1000;
+        Long totalImportTime = (System.currentTimeMillis() - start) / 1000;
 
-        start = System.currentTimeMillis();
-
-        for (List<Game> chunk : partition(gamesList, 500)) {
-            gameRepository.saveAll(chunk);
+        String result = "Imported " + totalPlayerGameStats + " player game stats across " + gamesSaved
+                + " of " + games.size() + " games in " + totalImportTime + "s.";
+        if (!failedGameIds.isEmpty()) {
+            result += "\nFailed after retries (" + failedGameIds.size() + "): " + failedGameIds
+                    + " — re-run this import to retry just these, existing games are unaffected.";
         }
-
-        for(List<PlayerGameStats> chunk : partition(statsList, 500)){
-            playerGameStatsRepository.saveAll(chunk);
-        }
-        Long batchSaveTime = (System.currentTimeMillis() - start) / 1000;
-
-        Long totalImportTime = batchRequestTime + parseBoxScoresTime + batchSaveTime;
-
-        return "Imported " + totalPlayerGameStats + " players game stats across " + games.size() + " games in " +  totalImportTime + "s." +
-                "\nBatch Request Time: " + batchRequestTime  + "s" +
-                "\nParse Boxscores Time: " + parseBoxScoresTime + "s" +
-                "\nBatch Save Time: " + batchSaveTime + "s";
+        return result;
     }
 
     public int importGameBoxScores(String gameNhlId) {
@@ -281,7 +278,7 @@ public class NHLImportService {
 
 
 
-    public int importGames(int startingYear) throws Exception {
+    public int importGames(int startingYear) {
         List<Team> allTeams =  teamRepository.findAll();
 
         int totalGames = 0;
@@ -496,7 +493,7 @@ public class NHLImportService {
     }
 
     // Imports season-total PPP/SHG/GWG for skaters from the Stats REST API.
-    public String importAdvancedSkaterStats(String season, GameType gameType) throws Exception {
+    public String importAdvancedSkaterStats(String season, GameType gameType) {
         int gameTypeId = mapGameTypeToId(gameType);
         String response = apiClient.getSkaterSeasonSummary(season, gameTypeId);
 
@@ -532,7 +529,7 @@ public class NHLImportService {
     }
 
     // Imports season-total W/L/OTL/SHO for goalies from the Stats REST API.
-    public String importAdvancedGoalieStats(String season, GameType gameType) throws Exception {
+    public String importAdvancedGoalieStats(String season, GameType gameType) {
         int gameTypeId = mapGameTypeToId(gameType);
         String response = apiClient.getGoalieSeasonSummary(season, gameTypeId);
 

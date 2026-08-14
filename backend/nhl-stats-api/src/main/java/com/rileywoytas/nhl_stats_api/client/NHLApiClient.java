@@ -4,21 +4,31 @@ import com.rileywoytas.nhl_stats_api.dto.BoxScoreDTO;
 import com.rileywoytas.nhl_stats_api.dto.GoalieDTO;
 import com.rileywoytas.nhl_stats_api.dto.SkaterDTO;
 import com.rileywoytas.nhl_stats_api.dto.TeamDTO;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
-import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 @Component
 public class NHLApiClient {
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate = buildRestTemplate();
     private final ObjectMapper mapper = new ObjectMapper();
+
+    // Bare `new RestTemplate()` has no timeouts at all, so a single stalled
+    // connection can hang indefinitely. Reasonable bounds here mean a slow
+    // request fails fast enough for the retry logic below to actually help.
+    private static RestTemplate buildRestTemplate() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);
+        factory.setReadTimeout(10000);
+        return new RestTemplate(factory);
+    }
 
     public String getTeams() {
         String url = "https://api.nhle.com/stats/rest/en/team";
@@ -74,9 +84,36 @@ public class NHLApiClient {
 
     public BoxScoreDTO getBoxScore(String gameNhlId) {
         String url = "https://api-web.nhle.com/v1/gamecenter/" + gameNhlId + "/boxscore";
-        String response = restTemplate.getForObject(url, String.class);
 
-        return parseBoxScore(response);
+        // Fetching hundreds of games in a full-season import means occasional
+        // transient I/O failures (timeouts, connection resets) are expected,
+        // not exceptional. Retrying a couple times with a short backoff
+        // resolves most of them without giving up on the whole import.
+        int maxAttempts = 3;
+        Exception lastException = null;
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                String response = restTemplate.getForObject(url, String.class);
+                return parseBoxScore(response);
+            } catch (Exception e) {
+                lastException = e;
+                Logger.getLogger(NHLApiClient.class.getName()).log(Level.WARNING,
+                        "Attempt " + attempt + "/" + maxAttempts + " failed fetching box score for game "
+                                + gameNhlId + ": " + e.getMessage());
+                if (attempt < maxAttempts) {
+                    try {
+                        Thread.sleep(500L * attempt);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+        }
+
+        throw new RuntimeException("Failed to fetch box score for game " + gameNhlId
+                + " after " + maxAttempts + " attempts", lastException);
     }
 
     private BoxScoreDTO parseBoxScore(String response) {

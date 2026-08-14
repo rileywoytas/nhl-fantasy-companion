@@ -48,6 +48,7 @@ export function StatsPage() {
         ...p,
         fantasyPoints: calculateFantasyPoints(p),
         avgToiSeconds: p.gamesPlayed ? p.timeOnIceSeconds / p.gamesPlayed : null,
+        winPct: p.starts ? p.wins / p.starts : null,
       }));
   }, [players, searchTerm, positionFilter]);
 
@@ -145,6 +146,7 @@ export function StatsPage() {
           columns={columns}
           defaultSortKey={defaultSortKey}
           onRowClick={setSelectedPlayer}
+          rankById={rankById}
         />
       )}
 

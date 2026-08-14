@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { usePlayerGameLog } from '../hooks/usePlayerGameLog';
+import { usePlayerPlayoffStats } from '../hooks/usePlayerPlayoffStats';
 import { PosBadge } from './PosBadge';
 import { normalizePosition } from '../utils/position';
 import { calculateSkaterFantasyPoints, calculateGoalieFantasyPoints } from '../utils/fantasyPoints';
@@ -10,15 +11,24 @@ function formatDate(dateStr) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+// Rounds to the nearest whole second first, then splits into minutes/seconds
+// — splitting the unrounded value first could show e.g. "1:60" instead of
+// rolling over to "2:00" when the fractional seconds rounded up to 60.
 function formatToi(seconds) {
-  if (seconds === null || seconds === undefined || seconds < 0) return '—';
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
+  if (seconds === null || seconds === undefined || Number.isNaN(seconds)) return '—';
+  const total = Math.round(seconds);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
 function formatSavePct(v) {
   return v == null ? '—' : v.toFixed(3).replace(/^0/, '');
+}
+
+function formatWinPct(wins, starts) {
+  if (!starts) return '—';
+  return (wins / starts).toFixed(3).replace(/^0/, '');
 }
 
 function formatFpts(v) {
@@ -75,10 +85,12 @@ function SeasonSnapshot({ player, isGoalie, rankInfo }) {
   const [rankModeIndex, setRankModeIndex] = useState(0);
   const currentRank = rankModes[rankModeIndex];
 
+  const gpLabel = isGoalie ? `${player.starts ?? 0} GS` : `${player.gamesPlayed ?? 0} GP`;
+
   return (
     <div className="border-b border-rink-border px-5 py-3">
       <div className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted">
-        Season Stats · {player.gamesPlayed ?? 0} GP
+        Season Stats · {gpLabel}
       </div>
       <div className="flex flex-wrap items-center gap-4">
         {isGoalie ? (
@@ -86,6 +98,7 @@ function SeasonSnapshot({ player, isGoalie, rankInfo }) {
             <SnapshotStat label="W" value={player.wins} />
             <SnapshotStat label="L" value={player.losses} />
             <SnapshotStat label="OTL" value={player.otLosses} />
+            <SnapshotStat label="W%" value={formatWinPct(player.wins, player.starts)} />
             <SnapshotStat label="SV%" value={formatSavePct(player.savePercentage)} />
             <SnapshotStat label="SHO" value={player.shutouts} />
           </>
@@ -126,9 +139,64 @@ function SeasonSnapshot({ player, isGoalie, rankInfo }) {
   );
 }
 
+function PlayoffSnapshot({ stats, status, isGoalie }) {
+  if (status === 'loading') {
+    return (
+      <div className="border-b border-rink-border px-5 py-3">
+        <div className="font-mono text-[10px] uppercase tracking-wider text-muted">Playoff Stats</div>
+        <p className="mt-1 font-mono text-xs text-muted">Loading…</p>
+      </div>
+    );
+  }
+
+  if (status === 'none' || !stats) {
+    return (
+      <div className="border-b border-rink-border px-5 py-3">
+        <div className="font-mono text-[10px] uppercase tracking-wider text-muted">Playoff Stats</div>
+        <p className="mt-1 font-mono text-xs text-muted">No playoff games this season.</p>
+      </div>
+    );
+  }
+
+  const gpLabel = isGoalie ? `${stats.starts ?? 0} GS` : `${stats.gamesPlayed ?? 0} GP`;
+
+  return (
+    <div className="border-b border-rink-border px-5 py-3">
+      <div className="mb-2 font-mono text-[10px] uppercase tracking-wider text-muted">
+        Playoff Stats · {gpLabel}
+      </div>
+      <div className="flex flex-wrap items-center gap-4">
+        {isGoalie ? (
+          <>
+            <SnapshotStat label="W" value={stats.wins} />
+            <SnapshotStat label="L" value={stats.losses} />
+            <SnapshotStat label="W%" value={formatWinPct(stats.wins, stats.starts)} />
+            <SnapshotStat label="SV%" value={formatSavePct(stats.savePercentage)} />
+            <SnapshotStat label="SHO" value={stats.shutouts} />
+          </>
+        ) : (
+          <>
+            <SnapshotStat label="G" value={stats.goals} />
+            <SnapshotStat label="A" value={stats.assists} />
+            <SnapshotStat label="PTS" value={stats.points} />
+            <SnapshotStat label="PPP" value={stats.powerPlayPoints} />
+            <SnapshotStat label="SHG" value={stats.shorthandedGoals} />
+            <SnapshotStat label="GWG" value={stats.gameWinningGoals} />
+            <SnapshotStat
+              label="TOI/G"
+              value={stats.gamesPlayed ? formatToi(stats.timeOnIceSeconds / stats.gamesPlayed) : '—'}
+            />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function PlayerDetailModal({ player, season, rankInfo, onClose }) {
   const isGoalie = normalizePosition(player.position) === 'G';
   const { games, status, error } = usePlayerGameLog(player.playerId, season);
+  const { stats: playoffStats, status: playoffStatus } = usePlayerPlayoffStats(player.playerId, season);
   const columns = isGoalie ? GOALIE_LOG_COLUMNS : SKATER_LOG_COLUMNS;
 
   return (
@@ -181,6 +249,7 @@ export function PlayerDetailModal({ player, season, rankInfo, onClose }) {
         </div>
 
         <SeasonSnapshot player={player} isGoalie={isGoalie} rankInfo={rankInfo} />
+        <PlayoffSnapshot stats={playoffStats} status={playoffStatus} isGoalie={isGoalie} />
 
         <div className="max-h-[60vh] overflow-y-auto px-5 py-4 themed-scrollbar">
           {status === 'loading' && (

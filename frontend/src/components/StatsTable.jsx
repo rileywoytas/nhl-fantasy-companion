@@ -7,7 +7,16 @@ function formatValue(col, value) {
   return value;
 }
 
-export function StatsTable({ players, columns, defaultSortKey, onRowClick }) {
+function buildRankTooltip(rankInfo) {
+  if (!rankInfo) return undefined;
+  const lines = [];
+  if (rankInfo.overall) lines.push(`Overall: #${rankInfo.overall.rank} of ${rankInfo.overall.total}`);
+  if (rankInfo.category) lines.push(`${rankInfo.category.label}: #${rankInfo.category.rank} of ${rankInfo.category.total}`);
+  if (rankInfo.position) lines.push(`${rankInfo.position.label}: #${rankInfo.position.rank} of ${rankInfo.position.total}`);
+  return lines.join('\n');
+}
+
+export function StatsTable({ players, columns, defaultSortKey, onRowClick, rankById }) {
   const [sortKey, setSortKey] = useState(defaultSortKey);
   const [sortDir, setSortDir] = useState('desc');
 
@@ -91,6 +100,7 @@ export function StatsTable({ players, columns, defaultSortKey, onRowClick }) {
               {columns.map((col) => (
                 <td
                   key={col.key}
+                  title={col.key === 'fantasyPoints' ? buildRankTooltip(rankById?.get(p.playerId)) : undefined}
                   className={`px-3 py-2 text-right ${col.highlight ? 'font-bold text-amber-light' : ''}`}
                 >
                   {formatValue(col, p[col.key])}
