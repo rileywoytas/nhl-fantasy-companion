@@ -17,9 +17,11 @@ import tools.jackson.databind.ObjectMapper;
 import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 public class NHLImportService {
@@ -33,7 +35,7 @@ public class NHLImportService {
     private final ObjectMapper mapper;
 
     private static final int CURRENT_SEASON_START_YEAR = 2025;
-    private final Logger logger;
+    private Logger logger;
 
     public NHLImportService(NHLApiClient apiClient,
                             TeamRepository teamRepository,
@@ -52,7 +54,7 @@ public class NHLImportService {
         this.logger = Logger.getLogger(NHLImportService.class.getName());
     }
 
-    public int importTeams() {
+    public int importTeams() throws Exception {
         String response = apiClient.getTeams();
 
         JsonNode root = mapper.readTree(response);
@@ -79,7 +81,7 @@ public class NHLImportService {
         return teamList.size();
     }
 
-    public int importSkaters() {
+    public int importSkaters() throws Exception {
         String response = apiClient.getCurrentPlayers();
 
         List<Player> skaterList = parsePlayers(response, "toi");
@@ -89,7 +91,7 @@ public class NHLImportService {
         return skaterList.size();
     }
 
-    public int importGoalies() {
+    public int importGoalies() throws Exception {
         String response = apiClient.getCurrentGoalies();
 
         List<Player> goalieList = parsePlayers(response, "wins");
@@ -192,7 +194,7 @@ public class NHLImportService {
         return player;
     }
 
-    public String importSeasonBoxScores(String season) {
+    public String importSeasonBoxScores(String season) throws Exception {
 
         List<Game> games = gameRepository.findAllBySeason(season);
 
@@ -278,7 +280,7 @@ public class NHLImportService {
 
 
 
-    public int importGames(int startingYear) {
+    public int importGames(int startingYear) throws Exception {
         List<Team> allTeams =  teamRepository.findAll();
 
         int totalGames = 0;
@@ -493,7 +495,7 @@ public class NHLImportService {
     }
 
     // Imports season-total PPP/SHG/GWG for skaters from the Stats REST API.
-    public String importAdvancedSkaterStats(String season, GameType gameType) {
+    public String importAdvancedSkaterStats(String season, GameType gameType) throws Exception {
         int gameTypeId = mapGameTypeToId(gameType);
         String response = apiClient.getSkaterSeasonSummary(season, gameTypeId);
 
@@ -529,7 +531,7 @@ public class NHLImportService {
     }
 
     // Imports season-total W/L/OTL/SHO for goalies from the Stats REST API.
-    public String importAdvancedGoalieStats(String season, GameType gameType) {
+    public String importAdvancedGoalieStats(String season, GameType gameType) throws Exception {
         int gameTypeId = mapGameTypeToId(gameType);
         String response = apiClient.getGoalieSeasonSummary(season, gameTypeId);
 
@@ -563,5 +565,145 @@ public class NHLImportService {
         }
 
         return "Imported advanced stats for " + statsList.size() + " goalies (" + season + ", " + gameType + ").";
+    }
+
+    // Populates per-game PPP/SHG/GWG on existing PlayerGameStats rows using
+    // the gamecenter "landing" endpoint's goal-by-goal scoring summary. Must
+    // be run after importSeasonBoxScores for the same season, since it only
+    // updates rows that already exist.
+    public String importGameScoringDetails(String season) throws Exception {
+        List<Long> gameIds = gameRepository.getNonFutureNhlIdsBySeason(season);
+
+        int updatedCount = 0;
+        List<Long> failedGameIds = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+        Long start = System.currentTimeMillis();
+
+        for (List<Long> batch : partition(gameIds, 50)) {
+            List<CompletableFuture<Map.Entry<Long, String>>> futures = batch.stream()
+                    .map(id -> CompletableFuture.supplyAsync(() -> {
+                        try {
+                            return Map.entry(id, apiClient.getGameLanding(id.toString()));
+                        } catch (Exception e) {
+                            logger.log(Level.WARNING, "Giving up on landing for game " + id + " after retries: " + e.getMessage());
+                            failedGameIds.add(id);
+                            return null;
+                        }
+                    })).toList();
+
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+            List<PlayerGameStats> toSave = new ArrayList<>();
+            for (CompletableFuture<Map.Entry<Long, String>> future : futures) {
+                Map.Entry<Long, String> entry = future.join();
+                if (entry == null) continue;
+                try {
+                    toSave.addAll(applyGameScoringDetails(entry.getKey(), entry.getValue()));
+                } catch (Exception e) {
+                    logger.log(Level.WARNING, "Failed to parse landing for game " + entry.getKey() + ": " + e.getMessage());
+                    failedGameIds.add(entry.getKey());
+                }
+            }
+
+            for (List<PlayerGameStats> chunk : partition(toSave, 500)) {
+                playerGameStatsRepository.saveAll(chunk);
+            }
+            updatedCount += toSave.size();
+        }
+
+        Long totalImportTime = (System.currentTimeMillis() - start) / 1000;
+
+        String result = "Updated per-game PPP/SHG/GWG for " + updatedCount + " player-game rows in " + totalImportTime + "s.";
+        if (!failedGameIds.isEmpty()) {
+            result += "\nFailed after retries (" + failedGameIds.size() + "): " + failedGameIds
+                    + " — re-run this import to retry just these.";
+        }
+        return result;
+    }
+
+    private List<PlayerGameStats> applyGameScoringDetails(Long gameId, String landingJson) {
+        JsonNode root = mapper.readTree(landingJson);
+
+        JsonNode summary = root.get("summary");
+        JsonNode homeTeamNode = root.get("homeTeam");
+        JsonNode awayTeamNode = root.get("awayTeam");
+        if (summary == null || summary.get("scoring") == null || homeTeamNode == null || awayTeamNode == null) {
+            return List.of();
+        }
+
+        int homeFinal = homeTeamNode.get("score") != null ? homeTeamNode.get("score").asInt() : 0;
+        int awayFinal = awayTeamNode.get("score") != null ? awayTeamNode.get("score").asInt() : 0;
+        boolean decisive = homeFinal != awayFinal;
+        boolean homeWon = homeFinal > awayFinal;
+        int losingFinal = Math.min(homeFinal, awayFinal);
+
+        Map<Integer, Integer> ppPointsByPlayer = new HashMap<>();
+        Map<Integer, Integer> shGoalsByPlayer = new HashMap<>();
+        Map<Integer, String> highlightUrlByPlayer = new HashMap<>();
+        Integer gwgScorerPlayerId = null;
+
+        for (JsonNode periodBlock : summary.get("scoring")) {
+            JsonNode periodDescriptor = periodBlock.get("periodDescriptor");
+            String periodType = periodDescriptor != null && periodDescriptor.get("periodType") != null
+                    ? periodDescriptor.get("periodType").asString() : null;
+
+            // Shootout doesn't produce "real" goals — no stats or GWG credit
+            // come from it, matching NHL's own scoring conventions.
+            if ("SO".equals(periodType) || periodBlock.get("goals") == null) {
+                continue;
+            }
+
+            for (JsonNode goal : periodBlock.get("goals")) {
+                String strength = goal.get("strength") != null ? goal.get("strength").asString() : "ev";
+                Integer scorerId = goal.get("playerId") != null ? goal.get("playerId").asInt() : null;
+
+                if (scorerId != null) {
+                    if ("pp".equals(strength)) {
+                        ppPointsByPlayer.merge(scorerId, 1, Integer::sum);
+                    } else if ("sh".equals(strength)) {
+                        shGoalsByPlayer.merge(scorerId, 1, Integer::sum);
+                    }
+
+                    // Only keep the first goal's highlight per player per
+                    // game — a multi-goal game just links their first tally.
+                    if (goal.get("highlightClipSharingUrl") != null) {
+                        highlightUrlByPlayer.putIfAbsent(scorerId, goal.get("highlightClipSharingUrl").asString());
+                    }
+                }
+
+                if ("pp".equals(strength) && goal.get("assists") != null) {
+                    for (JsonNode assist : goal.get("assists")) {
+                        if (assist.get("playerId") != null) {
+                            ppPointsByPlayer.merge(assist.get("playerId").asInt(), 1, Integer::sum);
+                        }
+                    }
+                }
+
+                // GWG = the goal after which the eventual winning team's
+                // running score first reaches the losing team's FINAL score
+                // + 1. Since a team's own running score only increases when
+                // that team scores, the first goal to cross this threshold
+                // must have been scored by the winning team. This naturally
+                // never fires in a shootout-decided game (regulation/OT ends
+                // tied in that case), matching the real NHL convention that
+                // no skater gets GWG credit for a shootout win.
+                if (decisive && gwgScorerPlayerId == null) {
+                    JsonNode scoreNode = homeWon ? goal.get("homeScore") : goal.get("awayScore");
+                    if (scoreNode != null && scoreNode.asInt() == losingFinal + 1) {
+                        gwgScorerPlayerId = scorerId;
+                    }
+                }
+            }
+        }
+
+        List<PlayerGameStats> gameRows = playerGameStatsRepository.findByGameId(gameId);
+        for (PlayerGameStats stats : gameRows) {
+            Integer playerId = stats.getPlayerId();
+            stats.setPowerPlayPoints(ppPointsByPlayer.getOrDefault(playerId, 0));
+            stats.setShorthandedGoals(shGoalsByPlayer.getOrDefault(playerId, 0));
+            stats.setGameWinningGoals(playerId.equals(gwgScorerPlayerId) ? 1 : 0);
+            stats.setGoalHighlightUrl(highlightUrlByPlayer.get(playerId));
+        }
+        return gameRows;
     }
 }

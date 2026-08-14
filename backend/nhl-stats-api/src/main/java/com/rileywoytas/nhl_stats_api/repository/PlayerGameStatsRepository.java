@@ -14,6 +14,8 @@ import java.util.UUID;
 public interface PlayerGameStatsRepository extends JpaRepository<PlayerGameStats, UUID> {
     Optional<PlayerGameStats> findByPlayerIdAndGameId(Integer playerId, Long teamId);
 
+    List<PlayerGameStats> findByGameId(Long gameId);
+
     @Query(value = """
             SELECT
                 pgs.player_id AS playerId,
@@ -92,6 +94,10 @@ public interface PlayerGameStatsRepository extends JpaRepository<PlayerGameStats
                 pgs.blocks AS blocks,
                 pgs.pim AS pim,
                 pgs.time_on_ice_seconds AS timeOnIceSeconds,
+                pgs.power_play_points AS powerPlayPoints,
+                pgs.shorthanded_goals AS shorthandedGoals,
+                pgs.game_winning_goals AS gameWinningGoals,
+                pgs.goal_highlight_url AS goalHighlightUrl,
                 pgs.saves AS saves,
                 pgs.shots_against AS shotsAgainst,
                 pgs.goals_against AS goalsAgainst,

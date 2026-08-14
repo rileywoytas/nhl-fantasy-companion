@@ -14,6 +14,10 @@ public interface PlayerGameLogEntryProjection {
     Integer getBlocks();
     Integer getPim();
     Integer getTimeOnIceSeconds();
+    Integer getPowerPlayPoints();
+    Integer getShorthandedGoals();
+    Integer getGameWinningGoals();
+    String getGoalHighlightUrl();
 
     Integer getSaves();
     Integer getShotsAgainst();

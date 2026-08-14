@@ -141,6 +141,10 @@ public class PlayerStatsService {
         dto.setBlocks(p.getBlocks());
         dto.setPim(p.getPim());
         dto.setTimeOnIceSeconds(p.getTimeOnIceSeconds());
+        dto.setPowerPlayPoints(p.getPowerPlayPoints());
+        dto.setShorthandedGoals(p.getShorthandedGoals());
+        dto.setGameWinningGoals(p.getGameWinningGoals());
+        dto.setGoalHighlightUrl(p.getGoalHighlightUrl());
         dto.setSaves(p.getSaves());
         dto.setShotsAgainst(p.getShotsAgainst());
         dto.setGoalsAgainst(p.getGoalsAgainst());

@@ -71,4 +71,13 @@ export const ADMIN_ACTIONS = [
       },
     ],
   },
+  {
+    id: 'import-scoring-details',
+    group: 'Advanced Stats',
+    label: 'Import Per-Game Scoring Details',
+    description:
+      'Fills in real per-game PPP/SHG/GWG (used for per-game FPTS in the player modal). Run this after Import Season Box Scores for the same season — it only updates games that are already imported.',
+    endpoint: (v) => `/import/scoring-details/season/${v.season}`,
+    fields: [{ key: 'season', label: 'Season', type: 'text', default: '20252026' }],
+  },
 ];

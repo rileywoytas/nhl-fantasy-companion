@@ -25,4 +25,9 @@ public class ImportController {
     public int importGameBoxScore(@PathVariable String game) throws Exception{
         return importService.importGameBoxScores(game);
     }
+
+    @PostMapping("/scoring-details/season/{season}")
+    public String importGameScoringDetails(@PathVariable String season) throws Exception {
+        return importService.importGameScoringDetails(season);
+    }
 }

@@ -270,6 +270,7 @@ export function PlayerDetailModal({ player, season, rankInfo, onClose }) {
                   <tr className="border-b border-rink-border">
                     <th className="px-2 py-1.5 text-left text-xs font-bold text-muted">Date</th>
                     <th className="px-2 py-1.5 text-left text-xs font-bold text-muted">Opp</th>
+                    <th className="px-2 py-1.5 text-xs font-bold text-muted"></th>
                     {columns.map((c) => (
                       <th key={c.key} className="px-2 py-1.5 text-right text-xs font-bold text-muted">
                         {c.label}
@@ -291,6 +292,20 @@ export function PlayerDetailModal({ player, season, rankInfo, onClose }) {
                         <td className="px-2 py-1.5 text-left text-ink">
                           {g.isHome ? 'vs' : '@'} {g.opponent}
                         </td>
+                        <td className="px-2 py-1.5 text-center">
+                          {g.goalHighlightUrl && (
+                            <a
+                              href={g.goalHighlightUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              title="Watch goal highlight"
+                              className="text-amber hover:text-amber-light"
+                            >
+                              ▶
+                            </a>
+                          )}
+                        </td>
                         {columns.map((c) => {
                           const value = g[c.key];
                           return (
@@ -309,8 +324,9 @@ export function PlayerDetailModal({ player, season, rankInfo, onClose }) {
                 </tbody>
               </table>
               <p className="mt-2 text-[11px] italic text-muted">
-                Per-game FPTS {isGoalie ? "excludes W/L/SHO" : "excludes PPP/SHG/GWG"} — those are only tracked as
-                season totals, not per game. See Season FPTS above for the full total.
+                {isGoalie
+                  ? 'Per-game FPTS excludes W/L/SHO — goalie decisions aren\'t tracked per game, only as season totals. See Season FPTS above for the full total.'
+                  : 'Per-game FPTS includes real PPP/SHG/GWG once "Import Per-Game Scoring Details" has been run for this season (Data tab). Until then, those categories show as 0 for games not yet processed — Season FPTS above is unaffected either way.'}
               </p>
             </>
           )}

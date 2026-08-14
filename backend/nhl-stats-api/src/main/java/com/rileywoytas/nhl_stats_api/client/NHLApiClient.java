@@ -11,6 +11,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
+import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -82,25 +83,21 @@ public class NHLApiClient {
         return restTemplate.getForObject(url, String.class);
     }
 
-    public BoxScoreDTO getBoxScore(String gameNhlId) {
-        String url = "https://api-web.nhle.com/v1/gamecenter/" + gameNhlId + "/boxscore";
-
-        // Fetching hundreds of games in a full-season import means occasional
-        // transient I/O failures (timeouts, connection resets) are expected,
-        // not exceptional. Retrying a couple times with a short backoff
-        // resolves most of them without giving up on the whole import.
+    // Shared retry helper — fetching hundreds of games in a full-season
+    // import means occasional transient I/O failures (timeouts, connection
+    // resets) are expected, not exceptional. Retrying a couple times with a
+    // short backoff resolves most of them without giving up on the caller.
+    private String getWithRetry(String url, String description) {
         int maxAttempts = 3;
         Exception lastException = null;
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
-                String response = restTemplate.getForObject(url, String.class);
-                return parseBoxScore(response);
+                return restTemplate.getForObject(url, String.class);
             } catch (Exception e) {
                 lastException = e;
                 Logger.getLogger(NHLApiClient.class.getName()).log(Level.WARNING,
-                        "Attempt " + attempt + "/" + maxAttempts + " failed fetching box score for game "
-                                + gameNhlId + ": " + e.getMessage());
+                        "Attempt " + attempt + "/" + maxAttempts + " failed fetching " + description + ": " + e.getMessage());
                 if (attempt < maxAttempts) {
                     try {
                         Thread.sleep(500L * attempt);
@@ -112,8 +109,21 @@ public class NHLApiClient {
             }
         }
 
-        throw new RuntimeException("Failed to fetch box score for game " + gameNhlId
-                + " after " + maxAttempts + " attempts", lastException);
+        throw new RuntimeException("Failed to fetch " + description + " after " + maxAttempts + " attempts", lastException);
+    }
+
+    public BoxScoreDTO getBoxScore(String gameNhlId) {
+        String url = "https://api-web.nhle.com/v1/gamecenter/" + gameNhlId + "/boxscore";
+        String response = getWithRetry(url, "box score for game " + gameNhlId);
+        return parseBoxScore(response);
+    }
+
+    // Raw JSON for the gamecenter "landing" endpoint — has goal-by-goal
+    // scoring detail (strength state, assists, running score) that the box
+    // score doesn't. Used to derive per-game PPP/SHG/GWG.
+    public String getGameLanding(String gameNhlId) {
+        String url = "https://api-web.nhle.com/v1/gamecenter/" + gameNhlId + "/landing";
+        return getWithRetry(url, "landing for game " + gameNhlId);
     }
 
     private BoxScoreDTO parseBoxScore(String response) {

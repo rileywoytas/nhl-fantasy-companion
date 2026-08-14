@@ -37,6 +37,14 @@ public class PlayerGameStats {
     private Integer giveaways;
     private Integer takeaways;
 
+    // Per-game scoring detail — derived from the gamecenter "landing" endpoint's
+    // goal-by-goal scoring summary, populated separately from the box score
+    // import via importGameScoringDetails(). Null until that's run for a game.
+    private Integer powerPlayPoints;
+    private Integer shorthandedGoals;
+    private Integer gameWinningGoals; // 0 or 1 — whether this player scored the GWG in this game
+    private String goalHighlightUrl; // link to a highlight clip for a goal this player scored this game, if any
+
     // Goalie stats
     private Integer saves;
     private Integer shotsAgainst;
