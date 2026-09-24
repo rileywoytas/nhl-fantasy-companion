@@ -17,6 +17,10 @@ import tools.jackson.databind.ObjectMapper;
 import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -577,10 +581,10 @@ public class NHLImportService {
         return "Imported advanced stats for " + statsList.size() + " goalies (" + season + ", " + gameType + ").";
     }
 
-    // Populates per-game PPP/SHG/GWG on existing PlayerGameStats rows using
-    // the gamecenter "landing" endpoint's goal-by-goal scoring summary. Must
-    // be run after importSeasonBoxScores for the same season, since it only
-    // updates rows that already exist.
+    // Populates per-game PPG/PPA/SHG/GWG on existing PlayerGameStats rows
+    // using the gamecenter "landing" endpoint's goal-by-goal scoring
+    // summary. Must be run after importSeasonBoxScores for the same season,
+    // since it only updates rows that already exist.
     public String importGameScoringDetails(String season) throws Exception {
         List<Long> gameIds = gameRepository.getNhlIdsMissingScoringDetailsBySeason(season);
         int totalGamesInSeason = gameRepository.getNonFutureNhlIdsBySeason(season).size();
@@ -591,64 +595,47 @@ public class NHLImportService {
 
         progressTracker.reset(season, gameIds.size());
 
-        int updatedCount = 0;
-        List<Long> failedGameIds = new java.util.concurrent.CopyOnWriteArrayList<>();
+        AtomicInteger updatedCount = new AtomicInteger(0);
+        List<Long> failedGameIds = new CopyOnWriteArrayList<>();
 
         Long start = System.currentTimeMillis();
 
-        // Smaller batches than the box score import (15 vs 50) — the landing
-        // endpoint returns a much heavier payload (full scoring summary),
-        // and 50 concurrent requests against it was causing widespread read
-        // timeouts, likely from connection contention rather than any one
-        // request being genuinely slow. A short pause between batches gives
-        // the server (and the JVM's connection handling) room to recover
-        // rather than hammering it continuously.
-        for (List<Long> batch : partition(gameIds, 15)) {
-            List<CompletableFuture<Map.Entry<Long, String>>> futures = batch.stream()
-                    .map(id -> CompletableFuture.supplyAsync(() -> {
-                        try {
-                            return Map.entry(id, apiClient.getGameLanding(id.toString()));
-                        } catch (Exception e) {
-                            logger.log(Level.WARNING, "Giving up on landing for game " + id + " after retries: " + e.getMessage());
-                            failedGameIds.add(id);
-                            progressTracker.recordGameFailed(id);
-                            return null;
+        // A bounded worker pool instead of batch-then-wait-for-all: each
+        // game is fetched, parsed, and saved independently the moment it
+        // finishes. Previously, one game stuck retrying (up to ~90s worst
+        // case across 3 attempts) blocked the entire batch of 15 from
+        // being saved or making progress, even though the other 14 had
+        // already succeeded. With a fixed pool, a slow game just occupies
+        // one worker thread while the rest keep flowing — nothing waits on
+        // it, and every result is saved and progress-tracked in real time.
+        int concurrency = 10;
+        ExecutorService executor = Executors.newFixedThreadPool(concurrency);
+
+        List<CompletableFuture<Void>> futures = gameIds.stream()
+                .map(id -> CompletableFuture.runAsync(() -> {
+                    try {
+                        String landingJson = apiClient.getGameLanding(id.toString());
+                        List<PlayerGameStats> rows = applyGameScoringDetails(id, landingJson);
+                        if (!rows.isEmpty()) {
+                            playerGameStatsRepository.saveAll(rows);
                         }
-                    })).toList();
+                        updatedCount.addAndGet(rows.size());
+                    } catch (Exception e) {
+                        logger.log(Level.WARNING, "Giving up on game " + id + " after retries: " + e.getMessage());
+                        failedGameIds.add(id);
+                        progressTracker.recordGameFailed(id);
+                    }
+                }, executor))
+                .toList();
 
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-
-            List<PlayerGameStats> toSave = new ArrayList<>();
-            for (CompletableFuture<Map.Entry<Long, String>> future : futures) {
-                Map.Entry<Long, String> entry = future.join();
-                if (entry == null) continue;
-                try {
-                    toSave.addAll(applyGameScoringDetails(entry.getKey(), entry.getValue()));
-                } catch (Exception e) {
-                    logger.log(Level.WARNING, "Failed to parse landing for game " + entry.getKey() + ": " + e.getMessage());
-                    failedGameIds.add(entry.getKey());
-                    progressTracker.recordGameFailed(entry.getKey());
-                }
-            }
-
-            for (List<PlayerGameStats> chunk : partition(toSave, 500)) {
-                playerGameStatsRepository.saveAll(chunk);
-            }
-            updatedCount += toSave.size();
-
-            try {
-                Thread.sleep(300);
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                break;
-            }
-        }
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        executor.shutdown();
 
         Long totalImportTime = (System.currentTimeMillis() - start) / 1000;
 
         progressTracker.complete();
 
-        String result = "Updated per-game PPP/SHG/GWG for " + updatedCount + " player-game rows across "
+        String result = "Updated per-game PPG/PPA/SHG/GWG for " + updatedCount.get() + " player-game rows across "
                 + (gameIds.size() - failedGameIds.size()) + " of " + gameIds.size() + " remaining games ("
                 + totalGamesInSeason + " total in season) in " + totalImportTime + "s.";
         if (!failedGameIds.isEmpty()) {

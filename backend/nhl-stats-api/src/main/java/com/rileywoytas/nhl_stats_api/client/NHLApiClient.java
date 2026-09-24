@@ -125,7 +125,7 @@ public class NHLApiClient {
     // Raw JSON for the gamecenter "landing" endpoint — has goal-by-goal
     // scoring detail (strength state, assists, running score) that the box
     // score doesn't. Used to derive per-game PPP/SHG/GWG.
-    public String getGameLanding(String gameNhlId) {
+    public String /idgetGameLanding(String gameNhlId) {
         String url = "https://api-web.nhle.com/v1/gamecenter/" + gameNhlId + "/landing";
         return getWithRetry(landingRestTemplate, url, "landing for game " + gameNhlId);
     }
